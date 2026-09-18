@@ -1,0 +1,20 @@
+# נתונים אישיים — לעולם לא לגיטהאב
+data/
+models/
+*.db
+*.db-wal
+*.db-shm
+crash_log.txt
+# בנייה
+build/
+dist/
+build.log
+__pycache__/
+*.pyc
+# צילומי בדיקה
+dev/_shots/
+*.png
+!icon_src.png
+# מערכת
+desktop.ini
+*.lnk

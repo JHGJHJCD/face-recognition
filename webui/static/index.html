@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>זיהוי פנים</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="splash">
+  <div class="splash-box">
+    <div class="logo big"><span></span></div>
+    <h1>זיהוי פנים</h1>
+    <p id="splash-msg">טוען את מנועי הזיהוי…</p>
+    <div class="loader"><i></i></div>
+    <small>בהפעלה הראשונה זה לוקח כדקה־שתיים. בפעמים הבאות — שניות ספורות.</small>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <aside class="nav">
+    <div class="brand"><div class="logo"><span></span></div><div><b>זיהוי פנים</b><small id="brand-sub"></small></div></div>
+    <nav id="menu"></nav>
+    <div class="nav-foot">
+      <div class="chip" id="chip-device"></div>
+      <div class="chip" id="chip-ai"></div>
+      <div class="chip off" id="chip-ver"></div>
+      <button class="btn primary small" id="chip-upd" hidden onclick="location.hash='data'"></button>
+      <button class="ghost small" id="theme-btn" title="מצב בהיר / כהה"></button>
+    </div>
+  </aside>
+  <main>
+    <header class="top">
+      <div><h2 id="page-title"></h2><p id="page-sub"></p></div>
+      <div class="top-actions" id="top-actions"></div>
+    </header>
+    <section id="page"></section>
+  </main>
+</div>
+
+<div id="modal-root"></div>
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>
