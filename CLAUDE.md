@@ -35,6 +35,12 @@
 - **PyInstaller onefile:** `QtWebEngineWidgets` מייבא `QtPrintSupport` — **אסור** ל-exclude אותו (קרס בהפעלה 18/9). `collect_all("openvino")` מושך torch/transformers/tensorflow (‏+450MB) — הם ב-excludes. `hiddenimports` של openvino = לא (רק מה ש-`import openvino` מושך). devtools של Chromium מסוננים מ-`a.datas`. תוצאה ~249MB. `--classic` ו-`ui/` מוחרגים מה-EXE.
 - **EXE בלי קונסולה:** שגיאות הפעלה נכתבות ל-`crash_log.txt` ליד ה-EXE (`main._crash`). בדיקה: להעתיק ל-`%TEMP%\faceid_test` עם junction ל-`models` ולהריץ `--shot`.
 - **הודעת "_MEI / Failed to remove temporary directory"** בסגירה — תהליך-האב של PyInstaller + נטפרי, לא ניתן לחסום מהקוד. לא שובר נתונים. לא להשקיע בזה.
+- **Gemini "לא עובד" (18/9/2026):** המפתחות היו תקינים — הכינוי `gemini-flash-latest` היה מושבת אצל גוגל שעות (503 "high demand" / פסקי זמן),
+  והקוד חיכה 40 שנ' לכל מפתח ואז **הפיל את כל הבקשה על פסק-זמן אחד**. תיקון ב-`core/ai.py`: סדר `flash-lite-latest` → `3.5-flash` → `flash-latest`;
+  503/500/404/פסק-זמן = המודל מדולג 5 דק' (`model_down`) ועוברים לבא; timeout 25 שנ'. `flash-lite` דוחה `thinkingBudget=0` ב-400 כללי ("invalid argument") —
+  לא שולחים לו `thinkingConfig`. `gemini-2.0/2.5-flash` = 404 למפתחות חדשים. **אבחון מהיר:** סקריפט שבודק 3 מפתחות × מודל עם timeout 12 שנ' —
+  לא לעבור על כל 24 המפתחות ב-30 שנ' כל אחד (זה מה ש"הקפיא" את השיחה ל-10 דקות).
+- **לא להריץ פקודות ארוכות בחזית** — יהודה רואה קיפאון. בנייה/העלאה/בדיקות רשת → `run_in_background` + עדכון קצר לפני ואחרי.
 - **`QDateEdit` ב-RTL** הופך יום/חודש/שנה — `setLayoutDirection(LTR)` **לפני** `setDisplayFormat` (רלוונטי רק ל-`--classic`).
 - **גלילה בממשק ה-HTML:** `#app`/`main` חייבים `height:100vh; overflow:hidden` — בלי זה `#page` גדל מעבר למסך ושום דבר לא נגלל (הבאג של 18/9). אלמנטים עם `.btn` + `hidden` צריכים `[hidden]{display:none!important}`.
 

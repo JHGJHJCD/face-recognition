@@ -16,7 +16,10 @@ import cv2
 from .utils import DATA_DIR
 
 KEYS_PATH = os.path.join(DATA_DIR, "gemini_keys.txt")
-MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.0-flash"]   # חינמיים בלבד (pro = מכסה 0)
+# חינמיים בלבד (pro = מכסה 0). 18/9/2026: "flash-latest" היה מושבת שעות (503/פסקי זמן) בזמן ש-lite ענה ב-2 שנ' ו-3.5 ב-10 שנ'
+# ⇒ המהיר ראשון, הכינוי "latest" אחרון, ומודל שנפל מדולג ל-5 דקות. gemini-2.0/2.5-flash הוסרו (404 למפתחות חדשים).
+MODELS = ["gemini-flash-lite-latest", "gemini-3.5-flash", "gemini-flash-latest"]
+MODEL_DOWN_SEC = 300
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
 
 try:  # NetFree מחליף תעודות — סומכים על מאגר התעודות של Windows
@@ -49,6 +52,7 @@ class GeminiClient:
         self.keys = load_keys()
         self.idx = 0
         self.blocked = {}       # (מפתח, מודל) -> עד מתי לדלג
+        self.model_down = {}    # מודל -> עד מתי לדלג (503 / פסק זמן = תקלה אצל גוגל, לא במפתח)
         self.calls = 0
         self.last_error = ""
 
@@ -61,7 +65,7 @@ class GeminiClient:
     def available(self):
         return bool(self.keys)
 
-    def ask(self, prompt, images=(), system=None, temperature=0.4, max_tokens=1024, timeout=40):
+    def ask(self, prompt, images=(), system=None, temperature=0.4, max_tokens=1024, timeout=25):
         """images: רשימת תמונות BGR (numpy) או bytes של JPEG. מחזיר טקסט."""
         if not self.keys:
             raise AIError("לא הוגדר מפתח Gemini (לשונית הגדרות).")
@@ -80,7 +84,12 @@ class GeminiClient:
         if system:
             body["systemInstruction"] = {"parts": [{"text": system}]}
         last = "אין תשובה"
-        for model in MODELS:
+        models = [m for m in MODELS if self.model_down.get(m, 0) <= time.time()] or MODELS
+        for model in models:
+            if "lite" in model:
+                body["generationConfig"].pop("thinkingConfig", None)
+            else:
+                body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
             for _ in range(len(self.keys)):
                 with self.lock:
                     key = self.keys[self.idx % len(self.keys)]
@@ -94,21 +103,23 @@ class GeminiClient:
                     last = f"HTTP {e.code}: {detail}"
                     if "NetFree" in detail:
                         raise AIError("נטפרי חסם את הגישה ל-Gemini.")
-                    if e.code == 400 and "thinking" in detail.lower():
+                    if e.code == 400 and "thinkingConfig" in body["generationConfig"]:
+                        # flash-lite דוחה thinkingBudget=0 בהודעה כללית ("invalid argument") — מנסים שוב בלי
                         body["generationConfig"].pop("thinkingConfig", None)
                         continue
                     if e.code in (429, 403, 401):
                         self.blocked[(key, model)] = time.time() + (90 if e.code == 429 else 3600)
                         continue
-                    if e.code in (404, 400):
-                        break           # המודל לא זמין — עוברים לבא
+                    if e.code in (404, 400, 500, 503):
+                        self.model_down[model] = time.time() + MODEL_DOWN_SEC
+                        break           # המודל לא זמין / עמוס — עוברים לבא
                 except AIError as e:
                     last = str(e)
                     break
-                except Exception as e:      # רשת
-                    last = str(e)
-                    self.last_error = last
-                    raise AIError(f"אין חיבור ל-Gemini: {last}")
+                except Exception as e:      # פסק זמן / רשת — מנסים את המודל הבא לפני שמוותרים
+                    last = f"אין תשובה מ-{model}: {e}"
+                    self.model_down[model] = time.time() + MODEL_DOWN_SEC
+                    break
         self.last_error = last
         raise AIError(f"כל המפתחות/המודלים נכשלו. {last}")
 
