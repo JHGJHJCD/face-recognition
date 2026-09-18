@@ -147,7 +147,7 @@ def apply_update(downloaded_path):
         if not os.path.exists(exe) and os.path.exists(old):
             os.replace(old, exe)
         return f"לא ניתן להחליף את קובץ התוכנה: {e}"
-    env = {k: v for k, v in os.environ.items() if k not in _PYI_ENV_VARS}   # אחרת ה-EXE החדש משתמש ב-_MEI של הישן ומת
+    env = {k: v for k, v in os.environ.items() if k not in _PYI_ENV_VARS and k != "FACEID_FAKE_VERSION"}   # אחרת ה-EXE החדש משתמש ב-_MEI של הישן ומת
     try:
         subprocess.Popen([exe], close_fds=True, env=env)
     except OSError as e:

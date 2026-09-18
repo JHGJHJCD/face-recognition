@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -27,7 +28,10 @@ from core.db import DEFAULTS, Database, Settings, cluster_embeddings
 from core.jobs import PhotoScanWorker, VideoScanWorker, enroll_from_image
 from core.live import ENROLL_SAMPLES, LiveWorker
 from core.utils import DATA_DIR, IMAGE_EXT, MODELS_DIR, UNKNOWN_DIR, VIDEO_EXT, crop_square, fmt_time, imread, jpg_bytes
-from version import APP_VERSION
+from version import APP_VERSION as _REAL_VERSION
+
+# לבדיקות בלבד: FACEID_FAKE_VERSION=0.9 גורם לתוכנה לחשוב שהיא ישנה, ו---auto-update מתקין עדכון בלי לחיצה
+APP_VERSION = os.environ.get("FACEID_FAKE_VERSION") or _REAL_VERSION
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8",
@@ -259,10 +263,11 @@ class Backend(QObject):
     def people(self):
         db = self.need_db()
         out = []
+        photos = {pid: cnt for pid, _, _, cnt in db.photo_people()}
         for pid, name, _, n in db.persons():
             info = db.person_info(pid)
             out.append({"id": pid, "name": name, "samples": n, "age": db.age(pid), "first": info["first"], "last": info["last"],
-                        "birth": info["birth"], "notes": info["notes"], "birthday": db.birthday_today(pid)})
+                        "birth": info["birth"], "notes": info["notes"], "birthday": db.birthday_today(pid), "photos": photos.get(pid, 0)})
         return out
 
     def samples(self, pid):
@@ -506,13 +511,15 @@ class Backend(QObject):
         time.sleep(20)
         while True:
             self.check_update(quiet=True)
-            time.sleep(30 * 60)
+            time.sleep(60 if "--auto-update" in sys.argv else 30 * 60)
 
     def check_update(self, quiet=False):
         try:
             info = updater.check_latest()
             self.update["available"] = info if info and updater.is_newer(info["version"], APP_VERSION) else None
             self.update["error"] = ""
+            if self.update["available"] and "--auto-update" in sys.argv and self.engine is not None:
+                self.install_update()
         except Exception as e:
             self.update["error"] = "" if quiet else f"לא ניתן לבדוק עדכונים: {e}"
         self.update["checked"] = time.time()

@@ -215,7 +215,7 @@ RENDER.people = async () => {
   $("#p-export").onclick = () => act("people/export");
   $("#p-new").onclick = async () => { const p = await askPerson("אדם חדש"); if (p) { toast("בחר תמונות של האדם בחלון שנפתח…"); await act("people/from_files", p, r => `${r.name} נרשם עם ${r.added} תמונות`); } };
   $("#page").innerHTML = `<div class="split">
-    <div class="card"><h3>אנשים רשומים <small id="p-count"></small></h3><div class="scroll"><div class="people-grid" id="p-grid"></div></div>
+    <div class="card"><h3>אנשים רשומים <small id="p-count"></small></h3><div class="scroll"><div class="people-grid" id="p-grid"><div class="empty" style="grid-column:1/-1">טוען…</div></div></div>
       <div id="p-detail"></div></div>
     <div class="card"><h3>לא מוכרים שנקלטו במצלמה</h3><p class="muted" style="font-size:13px;margin-bottom:10px">בחר תמונה ותן לה שם — והאדם יזוהה מעכשיו.</p>
       <div class="scroll"><div class="thumbs" id="u-grid"></div></div><div id="u-note"></div>
@@ -230,7 +230,7 @@ async function loadPeople() {
   S.peopleList = list; $("#p-count").textContent = list.length + " אנשים";
   $("#p-grid").innerHTML = list.length ? list.map(p => `<div class="person ${p.id === S.selPerson ? "on" : ""}" data-id="${p.id}">
     <img src="img/person/${p.id}?v=${S.rev.people}" onerror="this.style.opacity=.2"><b>${esc(p.name)}${p.birthday ? " 🎂" : ""}</b>
-    <small>${p.age != null ? `גיל ${p.age} · ` : ""}${p.samples} דגימות</small></div>`).join("") : `<div class="empty" style="grid-column:1/-1">עדיין לא נרשם אף אחד.<br>לחץ על ״אדם חדש מתמונות״ או רשום מהמצלמה.</div>`;
+    <small>${p.age != null ? `גיל ${p.age} · ` : ""}${p.samples} דגימות זיהוי${p.photos ? `<br>${p.photos.toLocaleString()} תמונות נמצאו` : ""}</small></div>`).join("") : `<div class="empty" style="grid-column:1/-1">עדיין לא נרשם אף אחד.<br>לחץ על ״אדם חדש מתמונות״ או רשום מהמצלמה.</div>`;
   $$("#p-grid .person").forEach(el => el.onclick = () => { S.selPerson = +el.dataset.id; loadPeople(); });
   const p = list.find(x => x.id === S.selPerson), d = $("#p-detail");
   if (!p) { d.innerHTML = ""; return; }
@@ -239,7 +239,8 @@ async function loadPeople() {
     <div class="row"><b style="font-size:16px">${esc(p.name)}</b><span class="muted">${p.birth ? "נולד " + p.birth.split("-").reverse().join("/") : "ללא תאריך לידה"}</span><span class="grow"></span>
     <button class="btn small" id="d-add">${icon("photos")}הוסף תמונות</button><button class="btn small" id="d-edit">${icon("edit")}ערוך פרטים</button><button class="btn small" id="d-merge" title="אם אותו אדם נרשם פעמיים">מזג לאדם אחר</button><button class="btn small danger" id="d-del">${icon("trash")}מחק</button></div>
     ${p.notes ? `<p class="muted" style="margin-top:6px">📝 ${esc(p.notes)}</p>` : ""}
-    <div class="thumbs" style="margin-top:12px;max-height:180px;overflow:auto">${samples.map(s => `<div class="thumb"><img src="img/sample/${s.id}"><span>${esc(s.source)}</span><button class="x" data-sid="${s.id}" title="מחק דגימה">×</button></div>`).join("")}</div></div>`;
+    <p class="muted" style="font-size:12.5px;margin-top:8px">דגימות הזיהוי = התמונות שלפיהן התוכנה מכירה את האדם (מספיקות 5–30). ${p.photos ? `כל ${p.photos.toLocaleString()} התמונות שבהן הוא נמצא — <a href="#photos" style="color:var(--accent)">במיון תמונות</a>.` : ""}</p>
+    <div class="thumbs" style="margin-top:8px;max-height:180px;overflow:auto">${samples.map(s => `<div class="thumb"><img src="img/sample/${s.id}"><span>${esc(s.source)}</span><button class="x" data-sid="${s.id}" title="מחק דגימה">×</button></div>`).join("")}</div></div>`;
   $("#d-add").onclick = () => act("people/add_files", { id: p.id }, r => `נוספו ${r.added} דגימות`);
   $("#d-edit").onclick = async () => { const v = await askPerson("עריכת פרטים", p); if (v) act("people/update", { id: p.id, ...v }, "הפרטים עודכנו"); };
   $("#d-del").onclick = async () => { if (await confirmBox(`למחוק את ${p.name} וכל הנתונים שלו?`)) { S.selPerson = null; act("people/delete", { id: p.id }); } };

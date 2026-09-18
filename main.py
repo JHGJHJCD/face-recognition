@@ -94,7 +94,7 @@ def main():
                 win.close()
                 return
             js(f"location.hash='{PAGES[i]}'")
-            QTimer.singleShot(9000 if (i == 0 and "--camera" in sys.argv) else 1500, lambda: shoot(i + 1))
+            QTimer.singleShot(9000 if (i == 0 and "--camera" in sys.argv) else 3500, lambda: shoot(i + 1))
 
         def wait_ready():
             if backend.engine is None:
