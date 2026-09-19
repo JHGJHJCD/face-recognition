@@ -22,8 +22,8 @@ def work():
     for name in sys.argv[1:] or ["people"]:
         try:
             t0 = time.time()
-            with urllib.request.urlopen(url + "api/" + name, timeout=30) as r:
-                body = r.read().decode()
+            with urllib.request.urlopen(url + (name[1:] if name.startswith("@") else "api/" + name), timeout=30) as r:
+                body = r.read().decode("utf-8", "replace")
             print(name, "%.2fs" % (time.time() - t0), "->", r.status, len(body), "bytes", body[:200].encode("ascii", "replace").decode())
         except urllib.error.HTTPError as e:
             print(name, "-> HTTP", e.code, e.read().decode()[:400].encode("ascii", "backslashreplace").decode())

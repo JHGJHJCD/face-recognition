@@ -28,7 +28,12 @@
 
 ## ⚠️ מלכודות ידועות
 - **Python:** בנה/בדוק רק עם `C:\Users\יהודה\AppData\Local\Programs\Python\Python312\python.exe`. ה-`python` שב-PATH הוא 3.14 וחסר תלויות.
-- **גופן:** Segoe UI בלבד (גם ב-CSS: `"Segoe UI Variable Text", "Segoe UI"`).
+- **גופן ועיצוב:** בממשק ה-HTML — Frank Ruhl Libre (כותרות) + Heebo (טקסט), נארזים ב-`webui/static/fonts`. שפת העיצוב ("משרד הרישום + עינית מצלמה") והכללים שלה ב-`docs/design.md`;
+  נבנה עם הסקיל `frontend-design` (גלובלי). "Segoe UI בלבד" נשאר נכון רק ל-`--classic` (Qt מרנדר גופני רשת מטושטש).
+- **מהירות (נמדד 19/9/2026, `dev/bench.py`, `dev/scan_bench.py`, `dev/live_fps.py`, `data/startup.log`):** טעינת 6 המודלים **במקביל** 1.5 שנ' מול 5–17 ברצף;
+  הממשק עולה בלי לחכות למנועים (`Backend.need_engine`); סריקת תמונות 1160→509ms לתמונה (קריאה ברקע ב-3 חוטים, פענוח JPEG מוקטן, מדידה כפולה רק לפנים גבוליות);
+  זיהוי חי 11→30 תמונות/שנ' (ניתוח בחוט נפרד `_analyze_loop` + איתור בכל תמונה שנייה). **נוסה ונפסל:** IR שמור (מהיר ב-0.7 שנ' אבל קומפילציה חד-פעמית של 115 שנ' לכל משתמש קיים);
+  `run_many` (4 בקשות במקביל) עוזר רק בסריקות גדולות — הקומפילציה של מצב THROUGHPUT עולה ~3 שנ' לתהליך.
 - **צילומי מסך עברית:** בלי offscreen. הממשק החדש: `main.py --shot <תיקייה>` (‏`win.grab()` על QWebEngineView עובד).
 - **נטפרי חוסם צ'אטים של Claude על תמונות:** `Read` של PNG מסוים יכול להקפיץ 418 ולהרוג את הצ'אט לצמיתות. אם צ'אט נחסם אחרי קריאת צילום — לא לקרוא אותו שוב; לאמת דרך `gemini_task.py -f <png>`.
 - **כלי Bash + heredoc מוחקים לוכסנים-אחוריים** (`\n` הפך לשורה אמיתית ב-`main.py`, ו-`\U` שבר סקריפט — 18/9) — סקריפטי-עזר דרך Write, עריכות דרך Edit.
@@ -102,8 +107,15 @@
 - **ממשק "בעיצוב דפדפן" (יהודה ביקש 17/9, נבנה 18/9):** `core/` נשאר, `ui/` הוחלף ב-`webui/` — ראה "מבנה".
 
 ## בנייה ושחרור (מ-18/9/2026)
-- `version.py` `APP_VERSION` → `python -m PyInstaller --noconfirm --clean זיהוי_פנים.spec` (‏~5 דק') → `cp dist/זיהוי_פנים.exe dist/FaceID.exe` →
-  בדיקה מתיקייה נקייה (ראה מלכודות) → `git add/commit/push` → `gh release create vX.Y dist/FaceID.exe -R JHGJHJCD/face-recognition --latest --notes "…"`.
+- **מבנה ההפצה מ-v1.3 (19/9/2026) — קובץ הפעלה קטן + תוכנה מותקנת.** נמדד: ה-EXE היחיד (249MB) נפרס מחדש בכל הפעלה = **78 שנ'** עד שפייתון בכלל מתחיל.
+  לכן: `FaceID.exe` = `launcher.py` (‏17MB, `launcher.spec`) — זה מה שמפיצים; הוא מריץ את `%LOCALAPPDATA%\FaceID\apps\<גרסה>\FaceIDApp.exe --home <התיקייה שלו>`,
+  ובהפעלה ראשונה מוריד ומתקין את `app.zip` מה-Release האחרון (חלון התקדמות tkinter). `data\` ו-`models\` נשארים ליד `FaceID.exe` (‏`--home` → `utils.BASE_DIR`).
+  `current.txt` בתיקיית `apps` = הגרסה הפעילה. עדכון מתוך התוכנה: `updater.install_update` מוריד `app.zip` → `apps\<חדש>` → `current.txt` → `relaunch`; הגרסה הישנה נמחקת בהפעלה הבאה (`cleanup_old`).
+  גרסאות 1.0–1.2 (EXE יחיד) מורידות את `FaceID.exe` החדש כעדכון, והוא מתקין את השאר — תאימות לאחור נשמרת.
+- **שחרור:** `version.py` → `python -m PyInstaller --noconfirm --clean זיהוי_פנים.spec` (‏~5 דק', → `dist\FaceIDApp\`) → לארוז ל-`dist\app.zip` (תוכן התיקייה בשורש ה-zip)
+  → launcher רק אם השתנה: `python -m PyInstaller --noconfirm --clean --distpath dist_l --workpath build_l launcher.spec` → בדיקה (`dev\time_exe`/`startup.log`) →
+  `git add/commit/push` → `gh release create vX.Y` ואז `gh release upload vX.Y dist/app.zip dist_l/FaceID.exe --clobber` → `gh release edit vX.Y --draft=false --latest`. **שני הקבצים חובה בכל Release.**
+- ⚠️ **לא להריץ `git stash`/החלפת ענפים בזמן שבנייה רצה ברקע** — PyInstaller קרא את ה-spec הישן ובנה EXE יחיד במקום התיקייה (19/9).
 - **הערות שחרור** בעברית פשוטה: שורה ראשונה כותרת עם `:`, ואז פריטים בשורות `-` (מוצג בכרטיס העדכון בתוכנה, עד 600 תווים).
 - **מודלים:** Release קבוע `models-v1` עם `models.zip` (‏329MB, נבנה מ-`models/*.onnx`). מודל חדש = תג חדש + `updater.MODELS_TAG`.
 - `gh` לא ב-PATH: `C:\Users\יהודה\AppData\Local\gh_cli\bin\gh.exe`. **אין קרדיט Claude ב-commits** (הכרעת המשתמש 27/08/2026).

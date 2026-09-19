@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-# בנייה: python -m PyInstaller --noconfirm --clean זיהוי_פנים.spec  →  dist\זיהוי_פנים.exe  (ואז מועתק ל-dist\FaceID.exe לשחרור)
-# EXE יחיד (onefile). המודלים (~380MB) *לא* בפנים — יורדים בהפעלה הראשונה מ-Release "models-v1" לתיקיית models\ ליד ה-EXE.
+# התוכנה עצמה כתיקייה פרוסה (onedir): python -m PyInstaller --noconfirm --clean זיהוי_פנים.spec → dist\FaceIDApp\ → נארז ל-distpp.zip
+# קובץ ההפעלה הקטן שמפיצים נבנה בנפרד מ-launcher.spec. למה לא EXE יחיד: נפרס מחדש 78 שנ' בכל הפעלה (נמדד 19/9/2026).
+# המודלים (~380MB) לא בפנים — יורדים בהפעלה הראשונה מ-Release "models-v1" לתיקיית models\ ליד FaceID.exe.
 from PyInstaller.utils.hooks import collect_all
 
 ov_datas, ov_bins, ov_hidden = collect_all("openvino")
@@ -34,12 +35,13 @@ a = Analysis(
 a.datas = [d for d in a.datas if "devtools" not in d[0].lower()]
 pyz = PYZ(a.pure)
 exe = EXE(
-    pyz, a.scripts, a.binaries, a.datas, [],
-    name="זיהוי_פנים",
+    pyz, a.scripts, [],
+    exclude_binaries=True,
+    name="FaceIDApp",
     debug=False,
     strip=False,
     upx=False,
-    runtime_tmpdir=None,
     console=False,
     icon=["icon.ico"],
 )
+coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="FaceIDApp")

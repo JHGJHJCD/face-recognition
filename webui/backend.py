@@ -27,7 +27,7 @@ from core import ai, reports, updater
 from core.db import DEFAULTS, Database, Settings, cluster_embeddings
 from core.jobs import PhotoScanWorker, VideoScanWorker, enroll_from_image
 from core.live import ENROLL_SAMPLES, LiveWorker
-from core.utils import DATA_DIR, IMAGE_EXT, MODELS_DIR, UNKNOWN_DIR, VIDEO_EXT, crop_square, fmt_time, imread, jpg_bytes
+from core.utils import mark, BASE_DIR, DATA_DIR, IMAGE_EXT, MODELS_DIR, UNKNOWN_DIR, VIDEO_EXT, crop_square, fmt_time, imread, jpg_bytes
 from version import APP_VERSION as _REAL_VERSION
 
 # לבדיקות בלבד: FACEID_FAKE_VERSION=0.9 גורם לתוכנה לחשוב שהיא ישנה, ו---auto-update מתקין עדכון בלי לחיצה
@@ -66,7 +66,11 @@ class Backend(QObject):
         self.window = None
         self.settings = Settings()
         self.ai = ai.GeminiClient()
-        self.engine = self.db = None
+        self.engine = None
+        # מסד הנתונים נפתח מיד — הממשק עולה בלי לחכות למנועי הזיהוי (שנטענים ברקע)
+        self.rec_name = "w600k_r50" if (os.path.exists(os.path.join(MODELS_DIR, "w600k_r50.onnx"))
+                                         and not os.path.exists(os.path.join(MODELS_DIR, "glintr100.onnx"))) else "glintr100"
+        self.db = Database(self.rec_name)
         self.load_error = ""
         self.lock = threading.RLock()
         self.events, self.ev_id = deque(maxlen=80), 0
@@ -89,7 +93,7 @@ class Backend(QObject):
         self.loader.ready.connect(self._on_engine)
         self.loader.progress.connect(lambda pct, msg: self.load_progress.update(pct=pct, msg=msg))
         self.loader.start()
-        updater.cleanup_old()
+        updater.cleanup_old(_REAL_VERSION)
         threading.Thread(target=self._update_loop, daemon=True).start()
 
     # ---------- תשתית ----------
@@ -113,9 +117,10 @@ class Backend(QObject):
     def _on_engine(self, engine):
         if isinstance(engine, Exception):
             self.load_error = str(engine)
+            mark(f"engine load FAILED: {engine!r}")
             return
-        self.db = Database(engine.rec_name)
         self.engine = engine
+        mark("engines ready")
 
     def bump(self, *keys):
         with self.lock:
@@ -128,13 +133,17 @@ class Backend(QObject):
             self.events.append({"id": self.ev_id, "kind": kind, "text": text, "img": img, "time": time.strftime("%H:%M")})
 
     def need_db(self):
-        if self.db is None:
-            raise ApiError("המנועים עדיין נטענים")
         return self.db
+
+    def need_engine(self):
+        if self.engine is None:
+            raise ApiError(self.load_error or "מנועי הזיהוי עדיין נטענים — עוד כמה שניות")
+        return self.engine
 
     def info(self):
         e = self.engine
-        return {"model": MODEL_TITLES.get(e.rec_name, e.rec_name), "device": "מאיץ גרפי (Intel GPU)" if e.device == "GPU" else "מעבד",
+        device = "טוען…" if e is None else "מאיץ גרפי (Intel GPU)" if e.device == "GPU" else "מעבד"
+        return {"model": MODEL_TITLES.get(self.rec_name, self.rec_name), "device": device, "engine": e is not None,
                 "ai": bool(self.settings["ai_enabled"] and self.ai.available), "keys": len(self.ai.keys)}
 
     @staticmethod
@@ -167,7 +176,8 @@ class Backend(QObject):
 
     # ---------- מצלמה ----------
     def camera(self, on):
-        self.need_db()
+        if on:
+            self.need_engine()
         self.in_main(self._camera_on if on else self._camera_off)
 
     def _camera_on(self):
@@ -293,7 +303,7 @@ class Backend(QObject):
         return ok
 
     def person_from_files(self, person):
-        db = self.need_db()
+        self.need_engine(); db = self.need_db()
         files = self.pick_images()
         if not files:
             return {"cancelled": True}
@@ -306,7 +316,7 @@ class Backend(QObject):
         return {"added": n, "name": person["name"]}
 
     def person_add_files(self, pid):
-        self.need_db()
+        self.need_engine()
         files = self.pick_images()
         if not files:
             return {"cancelled": True}
@@ -334,7 +344,7 @@ class Backend(QObject):
 
     # ---------- תמונות ----------
     def photos_scan(self):
-        self.need_db()
+        self.need_engine()
         if self.photo_worker:
             return {"running": True}
         folder = self.in_main(lambda: QFileDialog.getExistingDirectory(self.window, "בחר תיקיית תמונות", os.path.expanduser("~\\Pictures")))
@@ -424,7 +434,7 @@ class Backend(QObject):
 
     # ---------- וידאו ----------
     def video_scan(self):
-        self.need_db()
+        self.need_engine()
         if self.video_worker:
             return {"running": True}
         ext = " ".join("*" + e for e in sorted(VIDEO_EXT))
@@ -537,11 +547,10 @@ class Backend(QObject):
 
         def work():
             try:
-                path = updater.download(info["url"], updater.download_target(), lambda p, d, t: self.update.update(downloading=p))
+                exe = updater.install_update(info, lambda p: self.update.update(downloading=p))
+                self.update.update(downloading=99)
                 self.in_main(self.shutdown)
-                err = updater.apply_update(path)
-                if err:
-                    raise IOError(err)
+                updater.relaunch(exe, BASE_DIR)
                 self.in_main(lambda: QApplication.instance().quit())
             except Exception as e:
                 self.update.update(downloading=-1, error=str(e))
@@ -603,7 +612,7 @@ class Backend(QObject):
                         shutil.copyfileobj(src, dst)
         self.settings = Settings()
         self.ai.reload()
-        self.db = Database(self.engine.rec_name)
+        self.db = Database(self.rec_name)
         with self.db.lock:   # נתיבי התמונות של לא-מוכרים מהמחשב הקודם → לתיקייה כאן
             rows = self.db.con.execute("SELECT id, image FROM unknown_events WHERE image<>''").fetchall()
             self.db.con.executemany("UPDATE unknown_events SET image=? WHERE id=?",
@@ -720,10 +729,13 @@ def make_handler(be, token):
             if parts is None:
                 return self._send(403, b"forbidden", "text/plain")
             try:
-                if not parts or parts[0] in ("index.html", "app.css", "app.js"):
+                if not parts or parts[0] in ("index.html", "app.js", "base.css", "components.css", "pages.css"):
                     name = parts[0] if parts else "index.html"
                     with open(os.path.join(STATIC, name), "rb") as f:
                         return self._send(200, f.read(), MIME[os.path.splitext(name)[1]])
+                if parts[0] == "fonts" and len(parts) == 2 and parts[1].endswith(".woff2"):
+                    with open(os.path.join(STATIC, "fonts", os.path.basename(parts[1])), "rb") as f:
+                        return self._send(200, f.read(), "font/woff2", {"Cache-Control": "max-age=31536000"})
                 if parts[0] == "frame":
                     res = be.get_frame(int(q.get("last", 0)))
                     if res is None:
@@ -766,7 +778,7 @@ def make_handler(be, token):
         def api_get(self, parts, q):
             name = "/".join(parts)
             if name == "boot":
-                if be.engine is None:
+                if be.engine is None and be.load_progress["pct"] >= 0:      # הורדת מודלים בהפעלה ראשונה — מסך פתיחה עם התקדמות
                     return {"ready": False, "load_error": be.load_error, "progress": be.load_progress}
                 return {"ready": True, "info": be.info(), "settings": dict(be.settings), "views": reports.VIEWS, "version": APP_VERSION}
             if name == "poll":
@@ -776,7 +788,8 @@ def make_handler(be, token):
                     rev = dict(be.rev)
                 return {"camera": be.live is not None, "camera_error": be.camera_error, "events": evs, "rev": rev,
                         "enroll": be.enroll, "photo": be.photo, "video": be.video, "ai": be.ai_note,
-                        "ai_on": bool(be.settings["ai_enabled"] and be.ai.available), "update": be.update}
+                        "ai_on": bool(be.settings["ai_enabled"] and be.ai.available), "update": be.update,
+                        "engine": be.engine is not None, "load_error": be.load_error}
             if name == "people":
                 return be.people()
             if name == "samples":

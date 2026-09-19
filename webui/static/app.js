@@ -128,17 +128,17 @@ function setChips() {
 const RENDER = {};
 
 // ====================================================================== זיהוי חי
-const COLORS = { known: "#34d399", unknown: "#fbbf24", spoof: "#f87171", pending: "#38bdf8" };
+const COLORS = { known: "#2e9e6b", unknown: "#e08a1e", spoof: "#d2452f", pending: "#f2b705" };
 RENDER.live = () => {
   $("#page").innerHTML = `<div class="live">
     <div class="stage"><canvas id="cv" hidden></canvas>
       <div class="placeholder" id="ph"><div>${icon("camoff")}<div id="ph-text">המצלמה כבויה</div></div></div>
-      <div class="hud" id="hud" hidden><span class="pill rec">חי</span><span class="pill" id="fps"></span></div></div>
+      <div class="hud" id="hud" hidden><span class="pill rec">חי</span><span class="pill" id="fps"></span></div><div class="ruler"></div></div>
     <div class="side">
-      <div class="card"><button class="btn primary wide" id="cam-btn"></button>
-        <button class="btn wide" id="enroll-btn" style="margin-top:10px"></button>
+      <div class="controls"><button class="btn primary wide" id="cam-btn"></button>
+        <button class="btn wide" id="enroll-btn"></button>
         <div id="enroll-box" hidden style="margin-top:12px"><div class="bar"><i id="enroll-bar" style="width:0"></i></div><p class="muted" id="enroll-msg" style="margin-top:8px;font-size:13.5px"></p></div></div>
-      <div class="card ai-card" id="ai-card" hidden><h3>${icon("assistant")} ה-AI רואה <small id="ai-ts"></small></h3><p id="ai-text"></p></div>
+      <div class="card ai-card" id="ai-card" hidden><h3>${icon("assistant")} מה רואים עכשיו <small id="ai-ts"></small></h3><p id="ai-text"></p></div>
       <div class="card feed"><h3>אירועים אחרונים</h3><div class="feed-list" id="feed"></div></div>
     </div></div>`;
   $("#cam-btn").onclick = async () => { $("#cam-btn").disabled = true; await act("camera", { on: !S.camera }); };
@@ -151,8 +151,8 @@ RENDER.live = () => {
 function liveSync() {
   if (S.page !== "live" || !S.poll) return;
   const p = S.poll, cb = $("#cam-btn"), eb = $("#enroll-btn");
-  cb.disabled = false;
-  cb.innerHTML = S.camera ? icon("stop") + "עצור מצלמה" : icon("play") + "הפעל מצלמה";
+  cb.disabled = !p.engine;
+  cb.innerHTML = !p.engine ? (p.load_error ? "טעינת המנועים נכשלה" : "טוען מנועי זיהוי…") : S.camera ? icon("stop") + "עצור מצלמה" : icon("play") + "הפעל מצלמה";
   eb.disabled = !S.camera;
   eb.innerHTML = p.enroll.active ? "✖ בטל רישום" : icon("plus") + "רישום אדם חדש מהמצלמה";
   $("#cv").hidden = !S.camera; $("#hud").hidden = !S.camera; $("#ph").hidden = S.camera;
@@ -192,8 +192,8 @@ function drawFrame(bmp, meta) {
   $("#fps").textContent = `${Math.round(meta.fps)} תמונות בשנייה · ${meta.labels.length} פנים`;
   for (const lb of meta.labels) {
     const [x1, y1, x2, y2] = lb.bbox, w = x2 - x1, h = y2 - y1, col = COLORS[lb.state];
-    c.lineWidth = 1.5 * k; c.strokeStyle = col + "55"; roundRect(c, x1, y1, w, h, 12 * k); c.stroke();
-    c.lineWidth = 4 * k; c.strokeStyle = col; c.lineCap = "round";
+    
+    c.lineWidth = 3 * k; c.strokeStyle = col; c.lineCap = "square";
     const L = Math.min(w, h) * .22;
     for (const [cx, cy, dx, dy] of [[x1, y1, 1, 1], [x2, y1, -1, 1], [x1, y2, 1, -1], [x2, y2, -1, -1]]) {
       c.beginPath(); c.moveTo(cx + dx * L, cy); c.lineTo(cx, cy); c.lineTo(cx, cy + dy * L); c.stroke();
@@ -201,11 +201,11 @@ function drawFrame(bmp, meta) {
     const pill = (text, font, cy, bg, fg, above) => {
       c.font = font; c.direction = "rtl"; c.textAlign = "center"; c.textBaseline = "middle";
       const tw = c.measureText(text).width + 22 * k, th = 26 * k, px = (x1 + x2) / 2 - tw / 2, py = above ? cy - th : cy;
-      c.fillStyle = bg; roundRect(c, px, py, tw, th, th / 2); c.fill();
+      c.fillStyle = bg; roundRect(c, px, py, tw, th, 3 * k); c.fill();
       c.fillStyle = fg; c.fillText(text, (x1 + x2) / 2, py + th / 2 + k);
     };
-    pill(lb.title, `700 ${14 * k}px "Segoe UI"`, y1 - 8 * k, col, "#06121f", true);
-    if (lb.sub) pill(lb.sub, `${12.5 * k}px "Segoe UI"`, y2 + 8 * k, "rgba(4,10,24,.82)", "#e2e8f0", false);
+    pill(lb.title, `600 ${14.5 * k}px Plex, "Segoe UI"`, y1 - 8 * k, col, lb.state === "pending" ? "#1a1500" : "#fff", true);
+    if (lb.sub) pill(lb.sub, `${12.5 * k}px Plex, "Segoe UI"`, y2 + 8 * k, "rgba(5,7,10,.82)", "#ece6d8", false);
   }
 }
 
@@ -229,8 +229,9 @@ async function loadPeople() {
   const list = await api("people").catch(() => []); if (S.page !== "people") return;
   S.peopleList = list; $("#p-count").textContent = list.length + " אנשים";
   $("#p-grid").innerHTML = list.length ? list.map(p => `<div class="person ${p.id === S.selPerson ? "on" : ""}" data-id="${p.id}">
-    <img src="img/person/${p.id}?v=${S.rev.people}" onerror="this.style.opacity=.2"><b>${esc(p.name)}${p.birthday ? " 🎂" : ""}</b>
-    <small>${p.age != null ? `גיל ${p.age} · ` : ""}${p.samples} דגימות זיהוי${p.photos ? `<br>${p.photos.toLocaleString()} תמונות נמצאו` : ""}</small></div>`).join("") : `<div class="empty" style="grid-column:1/-1">עדיין לא נרשם אף אחד.<br>לחץ על ״אדם חדש מתמונות״ או רשום מהמצלמה.</div>`;
+    <img src="img/person/${p.id}?v=${S.rev.people}" onerror="this.style.opacity=.2"><div><b>${esc(p.name)}${p.birthday ? " 🎂" : ""}</b>
+    <dl>${p.age != null ? `<dt>גיל</dt><dd>${p.age}</dd>` : ""}<dt>דגימות זיהוי</dt><dd>${p.samples}</dd>${p.photos ? `<dt>תמונות שנמצאו</dt><dd>${p.photos.toLocaleString()}</dd>` : ""}</dl></div>
+    <span class="no">№ ${String(p.id).padStart(3, "0")}</span></div>`).join("") : `<div class="empty" style="grid-column:1/-1">עדיין לא נרשם אף אחד.<br>לחץ על ״אדם חדש מתמונות״ או רשום מהמצלמה.</div>`;
   $$("#p-grid .person").forEach(el => el.onclick = () => { S.selPerson = +el.dataset.id; loadPeople(); });
   const p = list.find(x => x.id === S.selPerson), d = $("#p-detail");
   if (!p) { d.innerHTML = ""; return; }
@@ -467,7 +468,7 @@ RENDER.data = async () => {
       <div class="opt"><div><b>הערות AI</b><small>כל התיאורים שה-AI רשם מהמצלמה</small></div><button class="btn small" id="cn">מחק הכל</button></div>
       <div class="opt"><div><b>אינדקס התמונות</b><small>שכחת כל התמונות שנסרקו (הקבצים עצמם לא נמחקים). אפשר גם תיקייה בודדת למטה.</small></div><button class="btn small danger" id="cp">נקה אינדקס</button></div>
       <div id="folders" style="margin-top:8px">${st.folders.map(f => `<div class="row" style="padding:6px 0;border-top:1px solid var(--line);font-size:13px"><span class="grow" style="direction:ltr;text-align:right;overflow:hidden;text-overflow:ellipsis">${esc(f.folder)}</span><span class="muted">${f.count}</span><button class="ghost small" data-forget="${esc(f.folder)}">שכח</button></div>`).join("")}</div></div>
-    <div class="card" style="border-color:rgba(248,113,113,.4)"><h3 style="color:var(--bad)">אזור מסוכן</h3>
+    <div class="card danger-zone"><h3>אזור מסוכן</h3>
       <div class="opt"><div><b>מחיקת כל יומן הנוכחות</b></div><button class="btn small danger" id="c-att">מחק</button></div>
       <div class="opt"><div><b>מחיקת כל הלא-מוכרים</b></div><button class="btn small danger" id="c-unk">מחק</button></div>
       <div class="opt"><div><b>איפוס מלא</b><small>מוחק את כל האנשים, הדגימות, הנוכחות, התמונות והלא-מוכרים. ההגדרות והמפתחות נשארים. כדאי לגבות קודם.</small></div><button class="btn small danger" id="c-all">אפס הכל</button></div></div>`;
@@ -503,8 +504,11 @@ async function pollLoop() {
     try {
       const p = await api("poll?ev=" + S.lastEv);
       const prev = S.rev; S.poll = p; S.camera = p.camera; S.rev = p.rev;
+      if (p.engine && !S.boot.info.engine) { S.boot.info = (await api("boot")).info; setChips(); }
       if (p.events.length) { S.events.push(...p.events); S.events = S.events.slice(-60); S.lastEv = p.events.at(-1).id; drawFeed(); }
-      if (p.enroll.done) { toast(p.enroll.done.text, p.enroll.done.ok ? "ok" : "bad"); act("enroll/ack"); }
+      if (p.enroll.done) {
+        if (p.enroll.done.ok && $(".stage")) { const st = document.createElement("div"); st.className = "stamp"; st.textContent = "נרשם"; $(".stage").append(st); setTimeout(() => st.remove(), 2600); }
+        toast(p.enroll.done.text, p.enroll.done.ok ? "ok" : "bad"); act("enroll/ack"); }
       const ch = k => prev[k] !== undefined && prev[k] !== p.rev[k];
       if (S.page === "live") liveSync();
       if (S.page === "people") { if (ch("people")) loadPeople(); if (ch("unknown")) loadUnknown(); }
@@ -521,7 +525,7 @@ async function pollLoop() {
 
 function setTheme(t) {
   document.documentElement.dataset.theme = t; try { localStorage.setItem("theme", t); } catch { }
-  $("#theme-btn").innerHTML = t === "light" ? "🌙 מצב כהה" : "☀️ מצב בהיר";
+  $("#theme-btn").innerHTML = t === "light" ? "מצב לילה" : "מצב יום";
 }
 
 (async function boot() {

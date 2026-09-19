@@ -34,28 +34,47 @@ class PhotoScanWorker(QThread):
                 if os.path.splitext(f)[1].lower() in IMAGE_EXT:
                     files.append(os.path.join(d, f))
         new = nfaces = 0
-        for i, path in enumerate(files):
-            if self.stop_flag:
-                break
-            self.progress.emit(i + 1, len(files), path)
+        thr = self.st["threshold"]
+
+        def fetch(path):
+            """רץ בחוטי רקע: קריאה ופענוח של התמונה בזמן שהמאיץ הגרפי עסוק בקודמת."""
             try:
                 mtime = os.path.getmtime(path)
                 if self.db.photo_known(path, mtime):
-                    continue
-                img = imread(path, 1920)
+                    return mtime, None
+                return mtime, imread(path, 1920)
+            except Exception:
+                return 0, None
+
+        from concurrent.futures import ThreadPoolExecutor
+        pool = ThreadPoolExecutor(3)
+        ahead = {}
+        for i, path in enumerate(files):
+            if self.stop_flag:
+                break
+            for p in files[i:i + 6]:
+                if p not in ahead:
+                    ahead[p] = pool.submit(fetch, p)
+            self.progress.emit(i + 1, len(files), path)
+            try:
+                mtime, img = ahead.pop(path).result()
                 if img is None:
                     continue
                 faces = [f for f in self.engine.detect(img, 0.55) if f.size >= 36]
-                self.engine.embed(img, faces)
+                self.engine.embed(img, faces, tta=False)
+                # מדידה כפולה (תמונה + ראי) רק לפנים גבוליות — חוסך כמעט חצי מזמן ההטמעה
+                edge = [f for f in faces if thr - 0.12 <= self.db.match(f.emb, thr)[1] < thr + 0.15]
+                self.engine.embed(img, edge, tta=True)
                 rows = []
                 for f in faces:
-                    pid, sim = self.db.match(f.emb, self.st["threshold"])
+                    pid, sim = self.db.match(f.emb, thr)
                     rows.append((f.bbox, f.det, f.emb, jpg_bytes(crop_square(img, f.bbox, size=112), 85), pid, sim))
                 self.db.save_photo(path, mtime, rows)
                 new += 1
                 nfaces += len(rows)
             except Exception as e:
                 print("photo error:", path, e)
+        pool.shutdown(wait=False, cancel_futures=True)
         self.finished_scan.emit(new, nfaces)
 
 

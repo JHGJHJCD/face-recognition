@@ -31,25 +31,38 @@ class Net:
     _core = None
     device = "CPU"
 
+    @classmethod
+    def init_core(cls):
+        """פעם אחת, לפני הטעינה המקבילה."""
+        if cls._core is not None:
+            return
+        try:
+            import openvino as ov
+            core = ov.Core()
+            cache = os.path.join(os.environ.get("LOCALAPPDATA", MODELS_DIR), "FaceID_ov_cache")
+            os.makedirs(cache, exist_ok=True)
+            core.set_property({"CACHE_DIR": cache})
+            cls.device = "GPU" if "GPU" in core.available_devices else "CPU"
+            cls._core = core
+        except Exception as e:
+            cls._core, cls.core_error = None, repr(e)
+
     def __init__(self, name, shape):
         self.lock = threading.Lock()
-        self.ov = None
+        self.ov = self.model = self.queue = None
         path = os.path.join(MODELS_DIR, name)
         with open(path, "rb") as f:
             data = f.read()
         try:
-            import openvino as ov
-            if Net._core is None:
-                Net._core = ov.Core()
-                cache = os.path.join(os.environ.get("LOCALAPPDATA", MODELS_DIR), "FaceID_ov_cache")
-                os.makedirs(cache, exist_ok=True)
-                Net._core.set_property({"CACHE_DIR": cache})
-                Net.device = "GPU" if "GPU" in Net._core.available_devices else "CPU"
-            model = Net._core.read_model(model=data)
-            model.reshape({model.inputs[0].any_name: shape})
-            self.ov = Net._core.compile_model(model, Net.device, {"PERFORMANCE_HINT": "LATENCY"})
-        except Exception:
-            import onnxruntime as ort   # גיבוי בלבד (לא נארז ב-EXE — OpenVINO רץ גם על המעבד)
+            Net.init_core()
+            self.model = Net._core.read_model(model=data)
+            self.model.reshape({self.model.inputs[0].any_name: shape})
+            self.ov = Net._core.compile_model(self.model, Net.device, {"PERFORMANCE_HINT": "LATENCY"})
+        except Exception as ov_err:
+            try:
+                import onnxruntime as ort   # גיבוי בלבד (לא נארז ב-EXE — OpenVINO רץ גם על המעבד)
+            except ImportError:
+                raise RuntimeError(f"OpenVINO נכשל ({name}): {getattr(Net, 'core_error', '') or ov_err!r}")
             opts = ort.SessionOptions()
             opts.log_severity_level = 3
             self.sess = ort.InferenceSession(data, opts, providers=["CPUExecutionProvider"])
@@ -61,6 +74,22 @@ class Net:
                 res = self.ov(blob)
                 return [res[i] for i in range(len(res))]
             return self.sess.run(None, {self.inp: blob})
+
+    def run_many(self, blobs):
+        """הרבה קלטים בבת אחת (סריקות): 4 בקשות במקביל במצב THROUGHPUT — נמדד 27ms מול 49ms לקלט. מחזיר את הפלט הראשון של כל קלט."""
+        if self.ov is None or len(blobs) < 3:
+            return [self(b)[0] for b in blobs]
+        import openvino as ov
+        with self.lock:
+            if self.queue is None:
+                cm = Net._core.compile_model(self.model, Net.device, {"PERFORMANCE_HINT": "THROUGHPUT"})
+                self.queue = ov.AsyncInferQueue(cm, 4)
+                self.queue.set_callback(lambda req, slot: slot[0].__setitem__(slot[1], req.get_output_tensor(0).data.copy()))
+            out = [None] * len(blobs)
+            for i, b in enumerate(blobs):
+                self.queue.start_async({0: b}, (out, i))
+            self.queue.wait_all()
+        return out
 
 
 def _umeyama(src, dst):
@@ -120,11 +149,28 @@ class FaceEngine:
     def __init__(self):
         rec = "glintr100.onnx" if os.path.exists(os.path.join(MODELS_DIR, "glintr100.onnx")) else "w600k_r50.onnx"
         self.rec_name = rec.split(".")[0]
-        self.det = Net("det_10g.onnx", [1, 3, DET_SIZE, DET_SIZE])
-        self.rec = Net(rec, [1, 3, 112, 112])
-        self.ga = Net("fairface.onnx", [1, 3, 224, 224])
-        self.emo = Net("emotion.onnx", [1, 3, 224, 224])
-        self.spoof = [(Net("MiniFASNetV2.onnx", [1, 3, 80, 80]), 2.7), (Net("MiniFASNetV1SE.onnx", [1, 3, 80, 80]), 4.0)]
+        # טעינה במקביל: נמדד 19/9/2026 — 5–17 שנ' ברצף מול ~1.5 שנ' במקביל (הקומפילציה משחררת את ה-GIL)
+        specs = {"det": ("det_10g.onnx", [1, 3, DET_SIZE, DET_SIZE]), "rec": (rec, [1, 3, 112, 112]),
+                 "ga": ("fairface.onnx", [1, 3, 224, 224]), "emo": ("emotion.onnx", [1, 3, 224, 224]),
+                 "s1": ("MiniFASNetV2.onnx", [1, 3, 80, 80]), "s2": ("MiniFASNetV1SE.onnx", [1, 3, 80, 80])}
+        Net.init_core()
+        nets, errors = {}, []
+
+        def load(key):
+            try:
+                nets[key] = Net(*specs[key])
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=load, args=(k,)) for k in specs]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        if errors:
+            raise errors[0]
+        self.det, self.rec, self.ga, self.emo = nets["det"], nets["rec"], nets["ga"], nets["emo"]
+        self.spoof = [(nets["s1"], 2.7), (nets["s2"], 4.0)]
         self.device = Net.device
         self._centers = {}
 
@@ -171,13 +217,16 @@ class FaceEngine:
     def embed(self, img, faces, tta=True):
         if not faces:
             return
-        crops = [align_face(img, f.kps) for f in faces]
-        for f, crop in zip(faces, crops):
-            e = np.zeros(512, np.float32)
+        k = 2 if tta else 1
+        blobs = []
+        for f in faces:
+            crop = align_face(img, f.kps)
             for c in ((crop, cv2.flip(crop, 1)) if tta else (crop,)):   # תמונה + תמונת ראי = וקטור יציב יותר
-                blob = cv2.dnn.blobFromImage(c, 1 / 127.5, (112, 112), (127.5, 127.5, 127.5), swapRB=True)
-                e = e + np.array(self.rec(blob)[0][0], np.float32)
-            f.norm = float(np.linalg.norm(e)) / (2 if tta else 1)
+                blobs.append(cv2.dnn.blobFromImage(c, 1 / 127.5, (112, 112), (127.5, 127.5, 127.5), swapRB=True))
+        outs = self.rec.run_many(blobs)
+        for i, f in enumerate(faces):
+            e = np.sum([np.asarray(o, np.float32).reshape(-1) for o in outs[i * k:(i + 1) * k]], axis=0)
+            f.norm = float(np.linalg.norm(e)) / k
             f.emb = e / max(np.linalg.norm(e), 1e-9)
 
     # ---------- גיל ומין ----------

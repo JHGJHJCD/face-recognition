@@ -32,6 +32,8 @@ def _crash(e):
 
 
 try:
+    from core.utils import mark  # noqa: E402
+    mark("python started")
     from PyQt6.QtCore import Qt, QTimer, QUrl  # noqa: E402
     from PyQt6.QtGui import QColor, QIcon  # noqa: E402
     from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings  # noqa: E402
@@ -82,6 +84,8 @@ def main():
     win = Window(backend, url)
     backend.window = win
     win.show()
+    mark("window shown")
+    win.view.loadFinished.connect(lambda ok: mark("page loaded"))
 
     if "--shot" in sys.argv:
         out = sys.argv[sys.argv.index("--shot") + 1]

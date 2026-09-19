@@ -14,7 +14,10 @@ import zipfile
 
 REPO = "JHGJHJCD/face-recognition"
 API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
-EXE_ASSET = "FaceID.exe"
+EXE_ASSET = "FaceID.exe"      # קובץ ההפעלה הקטן (launcher.py) — מה שמפיצים, ומה שגרסאות 1.0–1.2 מורידות כעדכון
+APP_ASSET = "app.zip"         # התוכנה עצמה כתיקייה פרוסה; מותקנת ב-%LOCALAPPDATA%\\FaceID\\apps\\<גרסה>
+APP_EXE = "FaceIDApp.exe"
+APPS = os.path.join(os.environ.get("LOCALAPPDATA", ""), "FaceID", "apps")
 MODELS_TAG = "models-v1"
 MODELS_URL = f"https://github.com/{REPO}/releases/download/{MODELS_TAG}/models.zip"
 MODEL_FILES = ["det_10g.onnx", "glintr100.onnx", "fairface.onnx", "emotion.onnx", "MiniFASNetV2.onnx", "MiniFASNetV1SE.onnx"]
@@ -70,8 +73,7 @@ def check_latest(timeout=10):
     data = _get_json(API_LATEST, timeout)
     tag = data.get("tag_name") or ""
     assets = data.get("assets") or []
-    asset = next((a for a in assets if a.get("name") == EXE_ASSET), None) or \
-        next((a for a in assets if str(a.get("name", "")).lower().endswith(".exe")), None)
+    asset = next((a for a in assets if a.get("name") == APP_ASSET), None)
     if asset is None:
         return None
     return {"version": tag.lstrip("vV"), "tag": tag, "url": asset.get("browser_download_url"),
@@ -109,50 +111,46 @@ def _rm(p):
         pass
 
 
-# ---------- EXE ----------
+# ---------- התקנת גרסה חדשה ----------
 def current_exe():
     return sys.executable if getattr(sys, "frozen", False) else None
 
 
-def download_target():
-    exe = current_exe()
-    return os.path.join(os.path.dirname(exe) if exe else os.getcwd(), _DOWNLOAD_NAME)
+def cleanup_old(keep_version):
+    """מוחק גרסאות קודמות ושאריות הורדה (הגרסה הרצה נעולה ממילא עד שתיסגר)."""
+    if not current_exe() or not os.path.isdir(APPS):
+        return
+    import shutil
+    for name in os.listdir(APPS):
+        if name not in (keep_version, "current.txt"):
+            full = os.path.join(APPS, name)
+            shutil.rmtree(full, ignore_errors=True) if os.path.isdir(full) else _rm(full)
 
 
-def cleanup_old():
-    exe = current_exe()
-    if exe:
-        for stale in (exe + ".old", download_target()):
-            if os.path.exists(stale):
-                _rm(stale)
+def install_update(info, progress_cb=None):
+    """מוריד את app.zip, פורס ל-apps\\<גרסה>, מעדכן current.txt. מחזיר נתיב ל-EXE החדש. progress_cb(אחוז)."""
+    import shutil
+    os.makedirs(APPS, exist_ok=True)
+    ver = info["version"]
+    tmp_zip, tmp_dir, final = os.path.join(APPS, "download.zip"), os.path.join(APPS, ver + ".tmp"), os.path.join(APPS, ver)
+    download(info["url"], tmp_zip, lambda p, d, t: progress_cb and progress_cb(min(p, 95)), timeout=60)
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    with zipfile.ZipFile(tmp_zip) as z:
+        z.extractall(tmp_dir)
+    shutil.rmtree(final, ignore_errors=True)
+    os.replace(tmp_dir, final)
+    _rm(tmp_zip)
+    exe = os.path.join(final, APP_EXE)
+    if not os.path.exists(exe):
+        raise IOError("קובץ ההתקנה פגום (חסר " + APP_EXE + ")")
+    with open(os.path.join(APPS, "current.txt"), "w", encoding="utf-8") as f:
+        f.write(ver)
+    return exe
 
 
-_PYI_ENV_VARS = ("_MEIPASS2", "_PYI_ARCHIVE_FILE", "_PYI_APPLICATION_HOME_DIR", "_PYI_PARENT_PID", "_PYI_ONEFILE_TEMPDIR",
-                 "_PYI_SPLASH_IPC", "_PYI_LINK_TARGET")
-
-
-def apply_update(downloaded_path):
-    """מחליף את ה-EXE הרץ בקובץ שהורד ומפעיל מחדש. None = הצלחה (על הקורא לצאת), אחרת מחרוזת שגיאה."""
-    exe = current_exe()
-    if not exe:
-        return "עדכון אוטומטי זמין רק בגרסת התוכנה (EXE)."
-    if not (downloaded_path and os.path.exists(downloaded_path)):
-        return "קובץ העדכון לא נמצא."
-    old = exe + ".old"
-    try:
-        _rm(old)
-        os.replace(exe, old)
-        os.replace(downloaded_path, exe)
-    except OSError as e:
-        if not os.path.exists(exe) and os.path.exists(old):
-            os.replace(old, exe)
-        return f"לא ניתן להחליף את קובץ התוכנה: {e}"
-    env = {k: v for k, v in os.environ.items() if k not in _PYI_ENV_VARS and k != "FACEID_FAKE_VERSION"}   # אחרת ה-EXE החדש משתמש ב-_MEI של הישן ומת
-    try:
-        subprocess.Popen([exe], close_fds=True, env=env)
-    except OSError as e:
-        return f"העדכון הותקן, אך ההפעלה מחדש נכשלה. הפעל את התוכנה ידנית.\n({e})"
-    return None
+def relaunch(exe, home):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("_PYI") and k not in ("_MEIPASS2", "FACEID_FAKE_VERSION")}
+    subprocess.Popen([exe, "--home", home], close_fds=True, env=env, cwd=os.path.dirname(exe))
 
 
 # ---------- מודלים ----------

@@ -1,0 +1,81 @@
+/* שפת העיצוב: "משרד הרישום + עינית מצלמה". שולחן עבודה כהה, מסמכי נייר (תעודות, יומן), סימון צהוב של עינית, חותמות ירוק/אדום.
+   בלי גרדיאנטים, בלי זוהר, בלי כרטיסים זהים — רדיוס וגבול לפי תפקיד: נייר 3px, כפתור 6px, עינית 0. ראה docs/design.md */
+@font-face { font-family: "Frank"; font-weight: 500; src: url(fonts/frank-ruhl-libre-hebrew-500.woff2) format("woff2"); font-display: swap; }
+@font-face { font-family: "Frank"; font-weight: 900; src: url(fonts/frank-ruhl-libre-hebrew-900.woff2) format("woff2"); unicode-range: U+0590-05FF, U+200C-2010, U+20AA, U+FB1D-FB4F; font-display: swap; }
+@font-face { font-family: "Frank"; font-weight: 900; src: url(fonts/frank-ruhl-libre-latin-900.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2116; font-display: swap; }
+@font-face { font-family: "Plex"; font-weight: 400; src: url(fonts/heebo-hebrew-400.woff2) format("woff2"); unicode-range: U+0590-05FF, U+200C-2010, U+20AA, U+FB1D-FB4F; font-display: swap; }
+@font-face { font-family: "Plex"; font-weight: 400; src: url(fonts/heebo-latin-400.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F; font-display: swap; }
+@font-face { font-family: "Plex"; font-weight: 600; src: url(fonts/heebo-hebrew-600.woff2) format("woff2"); unicode-range: U+0590-05FF, U+200C-2010, U+20AA, U+FB1D-FB4F; font-display: swap; }
+@font-face { font-family: "Plex"; font-weight: 600; src: url(fonts/heebo-latin-600.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F; font-display: swap; }
+
+:root {
+  --desk: #0e1116; --desk2: #151920; --panel: #1a1f28; --line: #2b323e; --line2: #3c4554;
+  --text: #ece6d8; --muted: #9aa2b1; --faint: #69717f;
+  --paper: #efe9db; --paper2: #e3dccb; --paper-ink: #1c2029; --paper-muted: #6b6657; --paper-line: #cfc6b1;
+  --mark: #f2b705; --mark-ink: #1a1500; --ok: #2e9e6b; --warn: #e08a1e; --bad: #d2452f;
+  --serif: "Frank", "David", "Times New Roman", serif; --sans: "Plex", "Segoe UI", Arial, sans-serif;
+  --ticks: repeating-linear-gradient(to left, var(--line2) 0 1px, transparent 1px 8px);
+}
+:root[data-theme="light"] {
+  --desk: #d9d4c7; --desk2: #cfc9ba; --panel: #f4efe3; --line: #c4bba6; --line2: #a89f89;
+  --text: #1c2029; --muted: #5f5a4c; --faint: #8c8572;
+  --paper: #fbf8f0; --paper2: #f1ecdf; --paper-line: #d6cdb8;
+  --mark: #d9a300; --ok: #1f7d53; --warn: #b96c0f; --bad: #b8371f;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--desk); color: var(--text); font: 15px/1.55 var(--sans); overflow: hidden; user-select: none; }
+h1, h2, h3, p, dl, dd { margin: 0; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+:focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+
+/* ---------- פתיחה: סוגרי העינית ננעלים על הנקודה (התנועה היזומה היחידה בתוכנה) ---------- */
+#splash { position: fixed; inset: 0; display: grid; place-items: center; background: var(--desk); z-index: 50; }
+.splash-box { text-align: center; display: grid; gap: 12px; justify-items: center; }
+.splash-box h1 { font: 900 44px/1 var(--serif); }
+.splash-box p { color: var(--muted); font-size: 16px; }
+.splash-box small { color: var(--faint); max-width: 420px; }
+.loader { width: 280px; height: 3px; background: var(--line); overflow: hidden; }
+.loader i { display: block; width: 35%; height: 100%; background: var(--mark); animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(280px); } 100% { transform: translateX(-100px); } }
+.logo { width: 38px; height: 38px; position: relative; flex: none; color: var(--mark);
+  background: linear-gradient(currentColor, currentColor) 0 0 / 11px 3px, linear-gradient(currentColor, currentColor) 0 0 / 3px 11px,
+    linear-gradient(currentColor, currentColor) 100% 0 / 11px 3px, linear-gradient(currentColor, currentColor) 100% 0 / 3px 11px,
+    linear-gradient(currentColor, currentColor) 0 100% / 11px 3px, linear-gradient(currentColor, currentColor) 0 100% / 3px 11px,
+    linear-gradient(currentColor, currentColor) 100% 100% / 11px 3px, linear-gradient(currentColor, currentColor) 100% 100% / 3px 11px;
+  background-repeat: no-repeat; }
+.logo span { position: absolute; inset: 13px; border-radius: 50%; background: var(--text); }
+.logo.big { width: 96px; height: 96px; animation: lock 1.1s cubic-bezier(.2, .9, .2, 1) both; }
+.logo.big span { inset: 36px; }
+@keyframes lock { from { transform: scale(1.9); opacity: 0; } 60% { opacity: 1; } to { transform: none; } }
+
+/* ---------- שלד: לשוניות-חוצץ של קלסר בצד, הדף במרכז ---------- */
+#app { display: grid; grid-template-columns: 228px 1fr; grid-template-rows: 100vh; height: 100vh; overflow: hidden; }
+.nav { min-height: 0; overflow: auto; background: var(--desk2); display: flex; flex-direction: column; padding: 22px 0 16px; gap: 22px; border-inline-end: 1px solid var(--line); }
+.brand { display: flex; gap: 12px; align-items: center; padding: 0 20px; }
+.brand b { display: block; font: 900 21px/1.1 var(--serif); }
+.brand small { color: var(--faint); font-size: 11.5px; direction: ltr; display: block; }
+#menu { display: grid; gap: 3px; padding-inline-start: 14px; }
+#menu button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 16px; border: 1px solid transparent; border-inline-end: 0;
+  border-radius: 0; border-start-start-radius: 8px; border-end-start-radius: 8px; background: transparent; color: var(--muted); font: 600 14.5px var(--sans);
+  cursor: pointer; text-align: start; position: relative; }
+#menu button svg { width: 19px; height: 19px; flex: none; stroke-width: 1.7; }
+#menu button:hover { color: var(--text); background: var(--panel); }
+#menu button.on { background: var(--desk); color: var(--text); border-color: var(--line); margin-inline-end: -1px; }
+#menu button.on::before { content: ""; position: absolute; inset-inline-start: -1px; top: -1px; bottom: -1px; width: 5px; background: var(--mark); border-start-start-radius: 8px; border-end-start-radius: 8px; }
+.nav-foot { margin-top: auto; display: grid; gap: 6px; padding: 0 16px; }
+.chip { font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; padding: 2px 4px; }
+.chip::before { content: ""; width: 7px; height: 7px; background: var(--ok); flex: none; }
+.chip.off::before { background: var(--faint); }
+
+main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100vh; overflow: hidden; }
+.top { display: flex; justify-content: space-between; align-items: flex-end; padding: 26px 32px 14px; gap: 16px; position: relative; }
+.top::after { content: ""; position: absolute; inset-inline: 32px; bottom: 0; height: 7px; background: var(--ticks); border-bottom: 1px solid var(--line2); }
+.top h2 { font: 900 40px/1 var(--serif); letter-spacing: -.5px; }
+.top p { color: var(--muted); font-size: 13.5px; margin-top: 8px; }
+.top-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; padding-bottom: 6px; }
+#page { flex: 1; min-height: 0; padding: 22px 32px 26px; overflow: auto; overflow-x: hidden; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

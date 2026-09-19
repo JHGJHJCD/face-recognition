@@ -79,6 +79,7 @@ class LiveWorker(QThread):
         self.ai_last, self.ai_people, self.ai_fail = 0.0, frozenset(), 0
         self.last_learn = {}
         self.last_frame = None
+        self._job, self._job_ready = None, threading.Event()
         self.running = False
         self.tracks = []
         self.recent_unknown = deque(maxlen=50)   # (זמן, emb)
@@ -149,7 +150,8 @@ class LiveWorker(QThread):
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         self.running = True
         threading.Thread(target=self._ai_loop, daemon=True).start()
-        fps, t_prev, fails = 0.0, time.time(), 0
+        threading.Thread(target=self._analyze_loop, daemon=True).start()
+        fps, t_prev, fails, n_frame = 0.0, time.time(), 0, 0
         while self.running:
             ok, frame = cap.read()
             if not ok:
@@ -166,9 +168,12 @@ class LiveWorker(QThread):
             frame = enhance_low_light(frame)
             self.last_frame = frame
             try:
-                self._process(frame, now)
-                self._ai_tick(frame, now)
-                self._enroll_step(frame, now)
+                # איתור פנים (~45ms) רק בכל תמונה שנייה — התצוגה רצה בקצב המלא של המצלמה, והמסגרות נשארות מהאיתור האחרון (33ms קודם)
+                n_frame += 1
+                if n_frame % 2 == 0:
+                    self._process(frame, now)
+                    self._ai_tick(frame, now)
+                    self._enroll_step(frame, now)
             except Exception as e:  # פריים בעייתי לא מפיל את הזיהוי
                 print("live error:", e)
             dt = now - t_prev
@@ -203,11 +208,27 @@ class LiveWorker(QThread):
 
         due = [t for t in self.tracks if t.last_seen == now and now - t.last_rec >= REC_EVERY and t.face.size >= self.st["min_face"]]
         due.sort(key=lambda t: t.last_rec)
-        for t in due[:3]:
-            self._analyze(frame, t, now)
+        # הניתוח (זהות/גיל/הבעה/זיוף ≈ 100ms לפנים) רץ בחוט נפרד — התצוגה נשארת חלקה בקצב המצלמה (נמדד: 11 → ~30 תמונות בשנייה)
+        if due and not self._job_ready.is_set():
+            for t in due[:3]:
+                t.last_rec = now
+            self._job = (frame, [(t, t.face) for t in due[:3]], now)   # הפנים של הפריים הזה — עד שהניתוח ירוץ t.face כבר יתחלף
+            self._job_ready.set()
 
-    def _analyze(self, frame, t, now):
-        f = t.face
+    def _analyze_loop(self):
+        while self.running:
+            if not self._job_ready.wait(0.3):
+                continue
+            frame, tracks, now = self._job
+            for t, face in tracks:
+                try:
+                    self._analyze(frame, t, now, face)
+                except Exception as e:
+                    print("analyze error:", e)
+            self._job_ready.clear()
+
+    def _analyze(self, frame, t, now, face=None):
+        f = face or t.face
         t.last_rec = now
         thr = self.st["threshold"]
         self.engine.embed(frame, [f], tta=False)
@@ -239,7 +260,7 @@ class LiveWorker(QThread):
                 self.last_marked[t.pid] = now
                 if self.db.mark_seen(t.pid, self.st["attendance_gap_min"], now):
                     self.person_seen.emit(self.db.names.get(t.pid, ""))
-            self._auto_learn(frame, t, sharp, now)
+            self._auto_learn(frame, t, sharp, now, f)
             return
         # אדם לא מוכר — שומרים את הצילום הטוב ביותר ומתריעים פעם אחת
         q = f.size * f.frontal * f.det
@@ -258,9 +279,9 @@ class LiveWorker(QThread):
             self.unknown_alert.emit(path)
             self._ai_submit(("unknown", path))
 
-    def _auto_learn(self, frame, t, sharp, now):
+    def _auto_learn(self, frame, t, sharp, now, face=None):
         """אדם שזוהה בביטחון גבוה לאורך זמן אבל נראה שונה מהדגימות שלו (תאורה/זווית/משקפיים) — לומדים את המראה החדש."""
-        f = t.face
+        f = face or t.face
         if (not self.st["auto_learn"] or self._enroll is not None or t.spoof or len(t.votes) < t.votes.maxlen
                 or any(p != t.pid for p, _ in t.votes) or t.sim < 0.58 or now - self.last_learn.get(t.pid, 0) < 30
                 or f.size < 100 or sharp < 30 or f.frontal < 0.3 or (self.st["antispoof"] and t.real_n < 3)):
