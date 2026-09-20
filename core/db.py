@@ -77,6 +77,7 @@ class Database:
         CREATE TABLE IF NOT EXISTS ai_notes(id INTEGER PRIMARY KEY, ts REAL, kind TEXT, people TEXT, text TEXT);
         CREATE INDEX IF NOT EXISTS ix_pf_person ON photo_faces(person_id);
         CREATE INDEX IF NOT EXISTS ix_pf_path ON photo_faces(path);
+        CREATE INDEX IF NOT EXISTS ix_pf_count ON photo_faces(model, person_id, path);
         """)
         for ddl in ("ALTER TABLE unknown_events ADD COLUMN note TEXT DEFAULT ''",
                     "ALTER TABLE persons ADD COLUMN first_name TEXT DEFAULT ''",

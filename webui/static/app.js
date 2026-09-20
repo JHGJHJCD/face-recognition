@@ -24,20 +24,25 @@ const ICON = {
   search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>', copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L21 2M16 7l3 3"/>', send: '<path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/>',
   data: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.7-4 3-9 3s-9-1.3-9-3M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>', x: '<path d="M18 6L6 18M6 6l12 12"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>', upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>',
+  cake: '<path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8M4 16s.5-1 2-1 2.5 2 4 2 2.500-2 4-2 2.500 2 4 2 2-1 2-1M2 21h20M7 8v3M12 8v3M17 8v3M7 4h.01M12 4h.01M17 4h.01"/>',
+  note: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
 
 const PAGES = [
-  ["live", "זיהוי חי", "מי נמצא עכשיו מול המצלמה"],
+  ["live", "זיהוי חי", "מי נמצא עכשיו מול המצלמה", "זיהוי"],
   ["people", "אנשים", "האנשים שהתוכנה מכירה, והלא-מוכרים שנקלטו"],
   ["photos", "מיון תמונות", "סריקת תיקיות תמונות ומציאת כל התמונות של כל אדם"],
   ["video", "סריקת וידאו", "מי מופיע בסרטון, ובאילו דקות"],
-  ["attendance", "יומן נוכחות", "הגעות, עזיבות, איחורים ונעדרים"],
+  ["attendance", "יומן נוכחות", "הגעות, עזיבות, איחורים ונעדרים", "מעקב"],
   ["assistant", "עוזר AI", "שאל בעברית חופשית על כל מה שהתוכנה רואה ורושמת"],
-  ["data", "נתונים ועדכונים", "גיבוי, שחזור, ניקוי, ייצוא — ועדכון התוכנה"],
-  ["settings", "הגדרות", ""],
+  ["data", "נתונים ועדכונים", "גיבוי, שחזור, ניקוי, ייצוא ועדכון התוכנה", "מערכת"],
+  ["settings", "הגדרות", "השינויים נשמרים מיד"],
 ];
+const empty = (ic, title, text = "", attr = "") => `<div class="empty" ${attr}>${icon(ic)}<b>${title}</b>${text}</div>`;
 
 const S = { page: "live", boot: null, poll: null, lastEv: 0, rev: {}, events: [], camera: false, selPerson: null, selUnknown: null,
             photoSel: null, videoSel: null, att: { view: 0, from: today(), to: today() }, chat: [], chatBusy: false, settings: {} };
@@ -114,30 +119,65 @@ function go(page) {
   RENDER[page]();
 }
 function buildMenu() {
-  $("#menu").innerHTML = PAGES.map(([id, t]) => `<button data-page="${id}">${icon(id)}<span>${t}</span></button>`).join("");
+  $("#menu").innerHTML = PAGES.map(([id, t, , group], i) => `${group ? `<div class="group">${group}</div>` : ""}<button data-page="${id}">${icon(id)}<span>${t}</span><kbd>Ctrl ${i + 1}</kbd></button>`).join("");
   $$("#menu button").forEach(b => b.onclick = () => go(b.dataset.page));
+  $("#nav-search-ic").outerHTML = icon("search");
+  $("#nav-search").onclick = palette;
+  document.addEventListener("keydown", e => {
+    if (!e.ctrlKey || e.altKey) return;
+    if (e.key.toLowerCase() === "k" || e.key === "ל") { e.preventDefault(); palette(); }
+    else if (e.key >= "1" && e.key <= String(PAGES.length) && !$(".overlay")) { e.preventDefault(); go(PAGES[+e.key - 1][0]); }
+  });
+}
+// חיפוש מהיר (Ctrl+K): מסכים ואנשים
+async function palette() {
+  if ($(".overlay")) return;
+  const o = document.createElement("div"); o.className = "overlay pal";
+  o.innerHTML = `<div class="palette"><input type="text" placeholder="לאן לעבור? מסך או שם של אדם…"><div class="pal-list"></div></div>`;
+  const inp = $("input", o), box = $(".pal-list", o); let items = [], cur = 0;
+  const close = () => o.remove();
+  const pick = it => { close(); if (it.pid) S.selPerson = it.pid; go(it.page); };
+  const draw = () => {
+    const q = inp.value.trim().toLowerCase();
+    const all = [...PAGES.map(([page, label]) => ({ page, label, ic: page })), ...(S.peopleList || []).map(p => ({ page: "people", pid: p.id, label: p.name }))];
+    items = all.filter(it => !q || it.label.toLowerCase().includes(q)).slice(0, 40); cur = Math.min(cur, Math.max(0, items.length - 1));
+    box.innerHTML = items.map((it, i) => `<div class="pal-item ${i === cur ? "on" : ""}" data-i="${i}">${it.pid ? `<img src="img/person/${it.pid}">` : icon(it.ic)}<span>${esc(it.label)}</span><small>${it.pid ? "אדם" : ""}</small></div>`).join("")
+      || `<div class="empty" style="padding:22px">לא נמצא מסך או אדם בשם הזה.</div>`;
+    $(".pal-item.on", box)?.scrollIntoView({ block: "nearest" });
+  };
+  box.onclick = e => { const el = e.target.closest(".pal-item"); if (el) pick(items[+el.dataset.i]); };
+  box.onmousemove = e => { const el = e.target.closest(".pal-item"); if (el && +el.dataset.i !== cur) { cur = +el.dataset.i; draw(); } };
+  inp.oninput = () => { cur = 0; draw(); };
+  inp.onkeydown = e => {
+    if (e.key === "Escape") close();
+    else if (e.key === "Enter") { if (items[cur]) pick(items[cur]); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); cur = (cur + (e.key === "ArrowDown" ? 1 : -1) + items.length) % Math.max(1, items.length); draw(); }
+  };
+  o.onmousedown = e => { if (e.target === o) close(); };
+  $("#modal-root").append(o); draw(); inp.focus();
+  if (!S.peopleList) { S.peopleList = await api("people").catch(() => null); if (o.isConnected) draw(); }
 }
 function setChips() {
   const i = S.boot.info;
   $("#brand-sub").textContent = i.model;
   $("#chip-device").textContent = "רץ על: " + i.device;
   $("#chip-ver").textContent = "גרסה " + S.boot.version;
-  const c = $("#chip-ai"); c.textContent = i.ai ? `AI פעיל · ${i.keys} מפתחות` : "AI כבוי — הכול מקומי"; c.classList.toggle("off", !i.ai);
+  const c = $("#chip-ai"); c.textContent = i.ai ? `AI פעיל, ${i.keys} מפתחות` : "AI כבוי, הכול מקומי"; c.classList.toggle("off", !i.ai);
 }
 
 const RENDER = {};
 
 // ====================================================================== זיהוי חי
-const COLORS = { known: "#2e9e6b", unknown: "#e08a1e", spoof: "#d2452f", pending: "#f2b705" };
+const COLORS = { known: "#3fba80", unknown: "#eaa23c", spoof: "#f06a58", pending: "#e8c547" };
 RENDER.live = () => {
   $("#page").innerHTML = `<div class="live">
     <div class="stage"><canvas id="cv" hidden></canvas>
       <div class="placeholder" id="ph"><div>${icon("camoff")}<div id="ph-text">המצלמה כבויה</div></div></div>
-      <div class="hud" id="hud" hidden><span class="pill rec">חי</span><span class="pill" id="fps"></span></div><div class="ruler"></div></div>
+      <div class="hud" id="hud" hidden><span class="pill rec">חי</span><span class="pill" id="fps"></span></div></div>
     <div class="side">
       <div class="controls"><button class="btn primary wide" id="cam-btn"></button>
         <button class="btn wide" id="enroll-btn"></button>
-        <div id="enroll-box" hidden style="margin-top:12px"><div class="bar"><i id="enroll-bar" style="width:0"></i></div><p class="muted" id="enroll-msg" style="margin-top:8px;font-size:13.5px"></p></div></div>
+        <div id="enroll-box" hidden><div class="bar"><i id="enroll-bar" style="width:0"></i></div><p class="hint" id="enroll-msg" style="margin-top:8px"></p></div></div>
       <div class="card ai-card" id="ai-card" hidden><h3>${icon("assistant")} מה רואים עכשיו <small id="ai-ts"></small></h3><p id="ai-text"></p></div>
       <div class="card feed"><h3>אירועים אחרונים</h3><div class="feed-list" id="feed"></div></div>
     </div></div>`;
@@ -154,7 +194,7 @@ function liveSync() {
   cb.disabled = !p.engine;
   cb.innerHTML = !p.engine ? (p.load_error ? "טעינת המנועים נכשלה" : "טוען מנועי זיהוי…") : S.camera ? icon("stop") + "עצור מצלמה" : icon("play") + "הפעל מצלמה";
   eb.disabled = !S.camera;
-  eb.innerHTML = p.enroll.active ? "✖ בטל רישום" : icon("plus") + "רישום אדם חדש מהמצלמה";
+  eb.innerHTML = p.enroll.active ? icon("x") + "בטל רישום" : icon("plus") + "רישום אדם חדש מהמצלמה";
   $("#cv").hidden = !S.camera; $("#hud").hidden = !S.camera; $("#ph").hidden = S.camera;
   $("#ph-text").textContent = p.camera_error || "המצלמה כבויה";
   $("#enroll-box").hidden = !p.enroll.active;
@@ -167,8 +207,8 @@ function liveSync() {
 function drawFeed() {
   const f = $("#feed"); if (!f) return;
   f.innerHTML = S.events.length ? S.events.slice().reverse().map(e => `<div class="ev ${e.kind}">
-    ${e.img ? `<img src="${esc(e.img)}" onerror="this.style.visibility='hidden'">` : `<div class="ph">✨</div>`}
-    <div><b>${esc(e.text)}</b><small>${esc(e.time)}</small></div></div>`).join("") : `<div class="empty">עדיין אין אירועים.<br>הפעל את המצלמה כדי להתחיל.</div>`;
+    ${e.img ? `<img src="${esc(e.img)}" onerror="this.style.visibility='hidden'">` : `<div class="ph">${icon("assistant")}</div>`}
+    <div><b>${esc(e.text)}</b><small>${esc(e.time)}</small></div></div>`).join("") : empty("live", "עדיין אין אירועים", "הפעל את המצלמה, וכל מי שיזוהה יופיע כאן.");
 }
 async function frameLoop() {
   let last = 0;
@@ -193,19 +233,24 @@ function drawFrame(bmp, meta) {
   for (const lb of meta.labels) {
     const [x1, y1, x2, y2] = lb.bbox, w = x2 - x1, h = y2 - y1, col = COLORS[lb.state];
     
-    c.lineWidth = 3 * k; c.strokeStyle = col; c.lineCap = "square";
-    const L = Math.min(w, h) * .22;
+    // מסגרת דקה ושקופה + פינות מעוגלות מודגשות
+    const R = Math.min(w, h) * .12, L = Math.min(w, h) * .2;
+    c.strokeStyle = col; c.lineCap = "round"; c.lineJoin = "round";
+    c.globalAlpha = .35; c.lineWidth = 1.5 * k; roundRect(c, x1, y1, w, h, R); c.stroke(); c.globalAlpha = 1;
+    c.lineWidth = 3 * k;
     for (const [cx, cy, dx, dy] of [[x1, y1, 1, 1], [x2, y1, -1, 1], [x1, y2, 1, -1], [x2, y2, -1, -1]]) {
-      c.beginPath(); c.moveTo(cx + dx * L, cy); c.lineTo(cx, cy); c.lineTo(cx, cy + dy * L); c.stroke();
+      c.beginPath(); c.moveTo(cx + dx * L, cy); c.arcTo(cx, cy, cx, cy + dy * L, R); c.lineTo(cx, cy + dy * L); c.stroke();
     }
-    const pill = (text, font, cy, bg, fg, above) => {
-      c.font = font; c.direction = "rtl"; c.textAlign = "center"; c.textBaseline = "middle";
-      const tw = c.measureText(text).width + 22 * k, th = 26 * k, px = (x1 + x2) / 2 - tw / 2, py = above ? cy - th : cy;
-      c.fillStyle = bg; roundRect(c, px, py, tw, th, 3 * k); c.fill();
-      c.fillStyle = fg; c.fillText(text, (x1 + x2) / 2, py + th / 2 + k);
+    // תווית: רקע כהה שקוף, נקודת מצב בצבע, טקסט לבן
+    const pill = (text, font, cy, dot, above) => {
+      c.font = font; c.direction = "rtl"; c.textAlign = "right"; c.textBaseline = "middle";
+      const d = dot ? 14 * k : 0, tw = c.measureText(text).width + 22 * k + d, th = 26 * k, px = (x1 + x2) / 2 - tw / 2, py = above ? cy - th : cy;
+      c.fillStyle = "rgba(12,13,17,.78)"; roundRect(c, px, py, tw, th, th / 2); c.fill();
+      if (dot) { c.fillStyle = col; c.beginPath(); c.arc(px + tw - 14 * k, py + th / 2, 4 * k, 0, 7); c.fill(); }
+      c.fillStyle = dot ? "#fff" : "#c9cdd6"; c.fillText(text, px + tw - 11 * k - d, py + th / 2 + k);
     };
-    pill(lb.title, `600 ${14.5 * k}px Plex, "Segoe UI"`, y1 - 8 * k, col, lb.state === "pending" ? "#1a1500" : "#fff", true);
-    if (lb.sub) pill(lb.sub, `${12.5 * k}px Plex, "Segoe UI"`, y2 + 8 * k, "rgba(5,7,10,.82)", "#ece6d8", false);
+    pill(lb.title, `500 ${14.5 * k}px UI, "Segoe UI"`, y1 - 8 * k, true, true);
+    if (lb.sub) pill(lb.sub, `${12.5 * k}px UI, "Segoe UI"`, y2 + 8 * k, false, false);
   }
 }
 
@@ -215,9 +260,9 @@ RENDER.people = async () => {
   $("#p-export").onclick = () => act("people/export");
   $("#p-new").onclick = async () => { const p = await askPerson("אדם חדש"); if (p) { toast("בחר תמונות של האדם בחלון שנפתח…"); await act("people/from_files", p, r => `${r.name} נרשם עם ${r.added} תמונות`); } };
   $("#page").innerHTML = `<div class="split">
-    <div class="card"><h3>אנשים רשומים <small id="p-count"></small></h3><div class="scroll"><div class="people-grid" id="p-grid"><div class="empty" style="grid-column:1/-1">טוען…</div></div></div>
+    <div class="card"><h3>אנשים רשומים <small id="p-count"></small></h3><div class="scroll"><div class="people-grid" id="p-grid"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></div>
       <div id="p-detail"></div></div>
-    <div class="card"><h3>לא מוכרים שנקלטו במצלמה</h3><p class="muted" style="font-size:13px;margin-bottom:10px">בחר תמונה ותן לה שם — והאדם יזוהה מעכשיו.</p>
+    <div class="card"><h3>לא מוכרים שנקלטו במצלמה</h3><p class="hint" style="margin-bottom:10px">בחר תמונה ותן לה שם, והאדם יזוהה מעכשיו.</p>
       <div class="scroll"><div class="thumbs" id="u-grid"></div></div><div id="u-note"></div>
       <div class="row" style="margin-top:12px"><button class="btn primary small" id="u-name">תן שם</button><button class="btn small" id="u-del">מחק</button><button class="btn small danger" id="u-clear">מחק הכל</button></div></div></div>`;
   $("#u-name").onclick = async () => { if (!S.selUnknown) return toast("בחר קודם תמונה"); const p = await askPerson("מי זה?"); if (p && await act("unknown/name", { id: S.selUnknown, ...p }, "נרשם — מעכשיו יזוהה")) S.selUnknown = null; };
@@ -229,18 +274,17 @@ async function loadPeople() {
   const list = await api("people").catch(() => []); if (S.page !== "people") return;
   S.peopleList = list; $("#p-count").textContent = list.length + " אנשים";
   $("#p-grid").innerHTML = list.length ? list.map(p => `<div class="person ${p.id === S.selPerson ? "on" : ""}" data-id="${p.id}">
-    <img src="img/person/${p.id}?v=${S.rev.people}" onerror="this.style.opacity=.2"><div><b>${esc(p.name)}${p.birthday ? " 🎂" : ""}</b>
-    <dl>${p.age != null ? `<dt>גיל</dt><dd>${p.age}</dd>` : ""}<dt>דגימות זיהוי</dt><dd>${p.samples}</dd>${p.photos ? `<dt>תמונות שנמצאו</dt><dd>${p.photos.toLocaleString()}</dd>` : ""}</dl></div>
-    <span class="no">№ ${String(p.id).padStart(3, "0")}</span></div>`).join("") : `<div class="empty" style="grid-column:1/-1">עדיין לא נרשם אף אחד.<br>לחץ על ״אדם חדש מתמונות״ או רשום מהמצלמה.</div>`;
+    <img src="img/person/${p.id}?v=${S.rev.people}" onerror="this.style.opacity=.2"><div><b>${esc(p.name)}${p.birthday ? icon("cake") : ""}</b>
+    <dl>${p.age != null ? `<span><dt>גיל</dt><dd>${p.age}</dd></span>` : ""}<span><dt>דגימות</dt><dd>${p.samples}</dd></span>${p.photos ? `<span><dt>תמונות</dt><dd>${p.photos.toLocaleString()}</dd></span>` : ""}</dl></div></div>`).join("") : empty("people", "עדיין לא נרשם אף אחד", "הוסף אדם מתמונות, או רשום אותו מול המצלמה במסך הזיהוי החי.", 'style="grid-column:1/-1"');
   $$("#p-grid .person").forEach(el => el.onclick = () => { S.selPerson = +el.dataset.id; loadPeople(); });
   const p = list.find(x => x.id === S.selPerson), d = $("#p-detail");
   if (!p) { d.innerHTML = ""; return; }
   const samples = await api("samples?id=" + p.id).catch(() => []);
-  d.innerHTML = `<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:14px">
-    <div class="row"><b style="font-size:16px">${esc(p.name)}</b><span class="muted">${p.birth ? "נולד " + p.birth.split("-").reverse().join("/") : "ללא תאריך לידה"}</span><span class="grow"></span>
+  d.innerHTML = `<div class="detail">
+    <div class="row"><b class="name">${esc(p.name)}</b><span class="muted">${p.birth ? "נולד " + p.birth.split("-").reverse().join("/") : "ללא תאריך לידה"}</span><span class="grow"></span>
     <button class="btn small" id="d-add">${icon("photos")}הוסף תמונות</button><button class="btn small" id="d-edit">${icon("edit")}ערוך פרטים</button><button class="btn small" id="d-merge" title="אם אותו אדם נרשם פעמיים">מזג לאדם אחר</button><button class="btn small danger" id="d-del">${icon("trash")}מחק</button></div>
-    ${p.notes ? `<p class="muted" style="margin-top:6px">📝 ${esc(p.notes)}</p>` : ""}
-    <p class="muted" style="font-size:12.5px;margin-top:8px">דגימות הזיהוי = התמונות שלפיהן התוכנה מכירה את האדם (מספיקות 5–30). ${p.photos ? `כל ${p.photos.toLocaleString()} התמונות שבהן הוא נמצא — <a href="#photos" style="color:var(--accent)">במיון תמונות</a>.` : ""}</p>
+    ${p.notes ? `<div class="note">${icon("note")}<span>${esc(p.notes)}</span></div>` : ""}
+    <p class="hint" style="margin-top:10px">דגימות הזיהוי = התמונות שלפיהן התוכנה מכירה את האדם (מספיקות 5–30). ${p.photos ? `כל ${p.photos.toLocaleString()} התמונות שבהן הוא נמצא מחכות <a href="#photos">במיון תמונות</a>.` : ""}</p>
     <div class="thumbs" style="margin-top:8px;max-height:180px;overflow:auto">${samples.map(s => `<div class="thumb"><img src="img/sample/${s.id}"><span>${esc(s.source)}</span><button class="x" data-sid="${s.id}" title="מחק דגימה">×</button></div>`).join("")}</div></div>`;
   $("#d-add").onclick = () => act("people/add_files", { id: p.id }, r => `נוספו ${r.added} דגימות`);
   $("#d-edit").onclick = async () => { const v = await askPerson("עריכת פרטים", p); if (v) act("people/update", { id: p.id, ...v }, "הפרטים עודכנו"); };
@@ -255,10 +299,10 @@ async function loadPeople() {
 }
 async function loadUnknown() {
   const list = await api("unknown").catch(() => []); if (S.page !== "people") return;
-  $("#u-grid").innerHTML = list.length ? list.map(u => `<div class="thumb ${u.id === S.selUnknown ? "on" : ""}" data-id="${u.id}" title="${esc(u.note)}"><img src="img/unknown/${u.id}"><span>${esc(u.time)}${u.note ? " ✨" : ""}</span></div>`).join("") : `<div class="empty" style="grid-column:1/-1">אין לא-מוכרים.</div>`;
+  $("#u-grid").innerHTML = list.length ? list.map(u => `<div class="thumb ${u.id === S.selUnknown ? "on" : ""}" data-id="${u.id}" title="${esc(u.note)}"><img src="img/unknown/${u.id}"><span>${esc(u.time)}</span></div>`).join("") : empty("people", "אין לא-מוכרים", "מי שהמצלמה לא תזהה יישמר כאן.", 'style="grid-column:1/-1"');
   $$("#u-grid .thumb").forEach(el => el.onclick = () => { S.selUnknown = +el.dataset.id; loadUnknown(); });
   const u = list.find(x => x.id === S.selUnknown);
-  $("#u-note").innerHTML = u?.note ? `<div class="note">✨ ${esc(u.note)}</div>` : "";
+  $("#u-note").innerHTML = u?.note ? `<div class="note">${icon("assistant")}<span>${esc(u.note)}</span></div>` : "";
 }
 
 // ====================================================================== תמונות
@@ -268,10 +312,10 @@ RENDER.photos = async () => {
   $("#ph-cluster").onclick = async () => { const b = $("#ph-cluster"); b.disabled = true; toast("מקבץ פנים דומות…"); const r = await act("photos/cluster"); b.disabled = false; if (r && !r.count) toast("לא נמצאו קבוצות של אנשים לא רשומים (נדרשות לפחות 4 הופעות)."); };
   $("#page").innerHTML = `<div class="split" style="grid-template-columns:300px 1fr">
     <div class="card"><h3>מי מופיע בתמונות</h3><div class="scroll"><div class="list" id="ph-people"></div></div></div>
-    <div class="card"><div id="ph-progress" hidden style="margin-bottom:12px"><div class="bar"><i id="ph-bar"></i></div><p class="muted" id="ph-file" style="font-size:13px;margin-top:6px"></p></div>
-      <div class="row" style="margin-bottom:12px"><b id="ph-title" style="font-size:16px"></b><span class="muted" id="ph-stats"></span><span class="grow"></span>
+    <div class="card"><div id="ph-progress" hidden style="margin-bottom:12px"><div class="bar"><i id="ph-bar"></i></div><p class="hint" id="ph-file" style="margin-top:6px"></p></div>
+      <div class="row" style="margin-bottom:12px"><b id="ph-title" style="font-size:15px;font-weight:600"></b><span class="muted" id="ph-stats"></span><span class="grow"></span>
       <button class="btn small primary" id="ph-name" hidden>תן שם לקבוצה</button><button class="btn small" id="ph-copy" hidden>${icon("copy")}העתק את התמונות לתיקייה</button></div>
-      <div class="scroll"><div class="photo-grid" id="ph-grid"></div></div><p class="muted" style="font-size:12.5px;margin-top:8px">לחיצה כפולה פותחת את התמונה המלאה.</p></div></div>`;
+      <div class="scroll"><div class="photo-grid" id="ph-grid"></div></div><p class="hint" style="margin-top:8px">לחיצה כפולה פותחת את התמונה המלאה.</p></div></div>`;
   $("#ph-name").onclick = async () => { const p = await askPerson("מי זה?"); if (p && await act("photos/name_cluster", { idx: S.photoSel.id, ...p }, "נרשם")) S.photoSel = null; };
   $("#ph-copy").onclick = () => S.photoSel && act("photos/copy", S.photoSel, r => `הועתקו ${r.copied} תמונות. המקור לא השתנה.`);
   photosSync(); await loadPhotos();
@@ -291,10 +335,10 @@ async function loadPhotos() {
   const sel = S.photoSel, is = (k, id) => sel && sel.kind === k && sel.id === id;
   $("#ph-people").innerHTML = (o.people.map(p => `<div class="li ${is("p", p.id) ? "on" : ""}" data-kind="p" data-id="${p.id}"><img src="img/person/${p.id}"><div><b>${esc(p.name)}</b><small>${p.count} תמונות</small></div></div>`).join("") +
     o.clusters.map(c => `<div class="li ${is("c", c.idx) ? "on" : ""}" data-kind="c" data-id="${c.idx}"><img src="img/cluster/${c.idx}?v=${S.rev.photos}"><div><b>לא רשום #${c.idx + 1}</b><small>${c.count} הופעות</small></div></div>`).join(""))
-    || `<div class="empty">עדיין לא נסרקו תמונות.</div>`;
+    || empty("photos", "עדיין לא נסרקו תמונות", "בחר תיקייה, והתוכנה תמצא מי מופיע בכל תמונה.");
   $$("#ph-people .li").forEach(el => el.onclick = () => { S.photoSel = { kind: el.dataset.kind, id: +el.dataset.id }; loadPhotos(); });
   $("#ph-name").hidden = !(sel && sel.kind === "c"); $("#ph-copy").hidden = !sel;
-  if (!sel) { $("#ph-title").textContent = ""; $("#ph-grid").innerHTML = `<div class="empty" style="grid-column:1/-1">בחר אדם מהרשימה כדי לראות את התמונות שלו.</div>`; return; }
+  if (!sel) { $("#ph-title").textContent = ""; $("#ph-grid").innerHTML = empty("people", "בחר אדם מהרשימה", "כל התמונות שבהן הוא מופיע יוצגו כאן.", 'style="grid-column:1/-1"'); return; }
   const items = await api(`photos/list?kind=${sel.kind}&id=${sel.id}`).catch(() => []);
   const name = sel.kind === "p" ? (o.people.find(p => p.id === sel.id)?.name || "") : `אדם לא רשום #${sel.id + 1}`;
   $("#ph-title").textContent = `${name} — ${items.length} תמונות`;
@@ -326,7 +370,7 @@ async function loadVideo() {
   const r = await api("video").catch(() => null); if (!r || S.page !== "video") return;
   $("#v-body").innerHTML = r.people.map(p => `<tr data-idx="${p.idx}" class="${p.idx === S.videoSel ? "on" : ""}"><td><img src="img/vid/${p.idx}?v=${S.rev.video}"></td>
     <td><b>${esc(p.name)}</b> ${p.known ? "" : '<span class="tag">לא מוכר</span>'}</td><td>${esc(p.total)}</td><td class="muted">${esc(p.ranges.join("  ,  "))}</td></tr>`).join("")
-    || `<tr><td colspan="4"><div class="empty">אין תוצאות עדיין.</div></td></tr>`;
+    || `<tr><td colspan="4">${empty("video", "אין תוצאות עדיין", "בחר סרטון כדי לגלות מי מופיע בו.")}</td></tr>`;
   $$("#v-body tr[data-idx]").forEach(tr => tr.onclick = () => { S.videoSel = +tr.dataset.idx; loadVideo(); });
 }
 
@@ -336,11 +380,10 @@ RENDER.attendance = async () => {
   $("#top-actions").innerHTML = `<button class="btn" id="a-add">${icon("plus")}רשומה ידנית</button><button class="btn primary" id="a-export">${icon("excel")}ייצוא לאקסל</button>`;
   $("#a-export").onclick = () => act("attendance/export", a);
   $("#a-add").onclick = async () => { if (!S.peopleList) S.peopleList = await api("people").catch(() => []); if (!S.peopleList.length) return toast("אין אנשים רשומים"); const r = await askRecord("רשומת נוכחות ידנית"); if (r) act("attendance/add", r, "נוסף"); };
-  $("#page").innerHTML = `<div style="display:flex;flex-direction:column;height:100%">
+  $("#page").innerHTML = `<div class="att">
     <div class="kpis" id="a-kpis"></div>
-    <div class="row" style="margin-bottom:10px"><div class="seg" id="a-views">${S.boot.views.map((v, i) => `<button data-v="${i}" class="${i === a.view ? "on" : ""}">${v}</button>`).join("")}</div></div>
-    <div class="row" style="margin-bottom:14px"><div class="seg"><button data-span="0">היום</button><button data-span="6">השבוע</button><button data-span="29">30 יום</button></div>
-      <span class="muted">מתאריך</span><input type="date" id="a-from" value="${a.from}"><span class="muted">עד</span><input type="date" id="a-to" value="${a.to}"></div>
+    <div class="row filters"><div class="seg" id="a-views">${S.boot.views.map((v, i) => `<button data-v="${i}" class="${i === a.view ? "on" : ""}">${v}</button>`).join("")}</div><span class="grow"></span><div class="seg"><button data-span="0">היום</button><button data-span="6">השבוע</button><button data-span="29">30 יום</button></div>
+      <span class="hint">מתאריך</span><input type="date" id="a-from" value="${a.from}"><span class="hint">עד</span><input type="date" id="a-to" value="${a.to}"></div>
     <div class="table-wrap"><table><thead id="a-head"></thead><tbody id="a-body"></tbody></table></div></div>`;
   $$("#a-views button").forEach(b => b.onclick = () => { a.view = +b.dataset.v; RENDER.attendance(); });
   $$("[data-span]").forEach(b => b.onclick = () => { a.from = daysAgo(+b.dataset.span); a.to = today(); RENDER.attendance(); });
@@ -360,14 +403,14 @@ async function loadAttendance() {
     $("#a-head").innerHTML = "<tr><th>שם</th><th>תאריך</th><th>הגעה</th><th>עזיבה</th><th>משך</th><th></th></tr>";
     $("#a-body").innerHTML = rows.map(x => `<tr data-id="${x.id}"><td><b>${esc(x.name)}</b></td><td>${esc(x.date.split("-").reverse().join("/"))}</td><td>${esc(x.t_in)}</td><td>${esc(x.t_out)}</td><td class="muted">${esc(x.dur)}</td>
       <td style="white-space:nowrap"><button class="ghost small" data-edit="${x.id}">${icon("edit")}</button> <button class="ghost small" data-del="${x.id}">${icon("trash")}</button></td></tr>`).join("")
-      || `<tr><td colspan="6"><div class="empty">אין רשומות בטווח התאריכים הזה.</div></td></tr>`;
+      || `<tr><td colspan="6">${empty("attendance", "אין רשומות בטווח הזה", "נסה טווח תאריכים רחב יותר.")}</td></tr>`;
     $$("#a-body [data-edit]").forEach(b => b.onclick = async () => { const x = rows.find(r => r.id === +b.dataset.edit); const v = await askRecord(`עריכת רשומה — ${x.name}`, x); if (v) act("attendance/update", { id: x.id, ...v }, "עודכן"); });
     $$("#a-body [data-del]").forEach(b => b.onclick = async () => { if (await confirmBox("למחוק את הרשומה?")) act("attendance/delete", { ids: [+b.dataset.del] }); });
     return;
   }
   $("#a-head").innerHTML = "<tr>" + r.headers.map(h => `<th>${esc(h)}</th>`).join("") + "</tr>";
   $("#a-body").innerHTML = r.rows.map(row => "<tr>" + row.map((c, i) => `<td>${r.headers[i] === "איחור" && c ? `<span class="tag ${c === "בזמן" ? "ok" : ""}">${esc(c)}</span>` : esc(c)}</td>`).join("") + "</tr>").join("")
-    || `<tr><td colspan="${r.headers.length}"><div class="empty">אין רשומות בטווח התאריכים הזה.</div></td></tr>`;
+    || `<tr><td colspan="${r.headers.length}">${empty("attendance", "אין רשומות בטווח הזה", "נסה טווח תאריכים רחב יותר.")}</td></tr>`;
 }
 
 // ====================================================================== עוזר
@@ -376,7 +419,7 @@ RENDER.assistant = () => {
   $("#page").innerHTML = `<div class="chat"><div class="msgs" id="msgs"></div>
     <div class="quick">${QUICK.map(q => `<button>${q}</button>`).join("")}</div>
     <div class="ask"><input type="text" id="ask" placeholder="שאל כל שאלה בעברית — על הנוכחות, על האנשים, על מה שהמצלמה רואה…"><button class="btn primary" id="ask-btn">${icon("send")}שלח</button></div>
-    <p class="muted" style="font-size:12.5px;text-align:center">השאלות, נתוני היומן ותמונת המצלמה (כשהיא פועלת) נשלחים ל-Gemini של גוגל.</p></div>`;
+    <p class="hint" style="text-align:center">השאלות, נתוני היומן ותמונת המצלמה (כשהיא פועלת) נשלחים ל-Gemini של גוגל.</p></div>`;
   $$(".quick button").forEach(b => b.onclick = () => ask(b.textContent));
   $("#ask-btn").onclick = () => ask($("#ask").value);
   $("#ask").onkeydown = e => { if (e.key === "Enter") ask($("#ask").value); };
@@ -385,7 +428,7 @@ RENDER.assistant = () => {
 function drawChat() {
   const m = $("#msgs"); if (!m) return;
   m.innerHTML = (S.chat.length ? S.chat.map(c => `<div class="msg ${c.err ? "err" : c.me ? "me" : "bot"}">${esc(c.text)}</div>`).join("")
-    : `<div class="empty" style="margin:auto">✨<br>אני רואה את יומן הנוכחות, את רשימת האנשים, את הלא-מוכרים ואת מה שהמצלמה מצלמת.<br>שאל אותי כל דבר.</div>`)
+    : empty("assistant", "שאל אותי כל דבר", "אני רואה את יומן הנוכחות, את רשימת האנשים, את הלא-מוכרים ואת מה שהמצלמה מצלמת.", 'style="margin:auto;max-width:420px"'))
     + (S.chatBusy ? `<div class="msg bot typing"><i></i><i></i><i></i></div>` : "");
   m.scrollTop = m.scrollHeight;
 }
@@ -433,7 +476,7 @@ RENDER.settings = () => {
   $("#thr").onchange = e => save({ threshold: e.target.value / 100 });
   $("#keys-btn").onclick = async () => {
     const cur = await api("keys").catch(() => ({ keys: "" }));
-    const v = await modal(`<h3>מפתחות Gemini</h3><p class="muted" style="font-size:13.5px">מפתח API אחד בכל שורה (מ-Google AI Studio, חינם). אפשר כמה — התוכנה מתחלפת ביניהם.</p>
+    const v = await modal(`<h3>מפתחות Gemini</h3><p class="hint">מפתח API אחד בכל שורה (מ-Google AI Studio, חינם). אפשר כמה — התוכנה מתחלפת ביניהם.</p>
       <textarea id="m-keys">${esc(cur.keys)}</textarea><div class="actions"><button class="btn primary" data-ok>שמור</button><button class="btn" data-cancel>ביטול</button></div>`,
       (o, close) => { $("[data-ok]", o).onclick = () => close($("#m-keys", o).value); });
     if (v != null) { const r = await act("keys", { keys: v }, "המפתחות נשמרו"); if (r) { S.boot.info = r.info; setChips(); RENDER.settings(); } }
@@ -457,17 +500,17 @@ RENDER.data = async () => {
         <div class="kpi"><b>${st.unknown}</b><small>לא-מוכרים (${MB(st.unknown_dir_bytes)})</small></div>
         <div class="kpi"><b>${st.ai_notes}</b><small>הערות AI</small></div>
         <div class="kpi"><b>${MB(st.db_bytes)}</b><small>גודל מסד הנתונים</small></div></div>
-      <p class="muted" style="font-size:12.5px;direction:ltr;text-align:right">${esc(st.data_dir)}</p></div>
+      <p class="path">${esc(st.data_dir)}</p></div>
     <div class="card"><h3>גיבוי ושחזור</h3>
-      <p class="muted" style="font-size:13.5px;margin-bottom:12px">הגיבוי כולל את כל האנשים, הנוכחות, אינדקס התמונות, הלא-מוכרים, ההגדרות והמפתחות — קובץ ZIP אחד שאפשר להעביר למחשב אחר.</p>
-      <div class="row"><button class="btn primary" id="bk">💾 גבה עכשיו</button><button class="btn" id="rs">📂 שחזר מגיבוי…</button></div>
-      <p class="muted" style="font-size:12.5px;margin-top:10px">לפני שחזור נשמר עותק ביטחון של המצב הנוכחי בתיקיית הנתונים.</p></div>
+      <p class="hint" style="margin-bottom:12px">הגיבוי כולל את כל האנשים, הנוכחות, אינדקס התמונות, הלא-מוכרים, ההגדרות והמפתחות — קובץ ZIP אחד שאפשר להעביר למחשב אחר.</p>
+      <div class="row"><button class="btn primary" id="bk">${icon("download")}גבה עכשיו</button><button class="btn" id="rs">${icon("upload")}שחזר מגיבוי…</button></div>
+      <p class="hint" style="margin-top:10px">לפני שחזור נשמר עותק ביטחון של המצב הנוכחי בתיקיית הנתונים.</p></div>
     <div class="card"><h3>ניקוי</h3>
       <div class="opt"><div><b>לא-מוכרים ישנים</b><small>מחיקת צילומים של לא-מוכרים שנקלטו לפני יותר מ-X ימים</small></div><input type="number" id="pg-days" value="30" min="1" max="3650"><button class="btn small" id="pg">מחק</button></div>
       <div class="opt"><div><b>יומן נוכחות בטווח</b><small>מחיקת רשומות בין שני תאריכים</small></div><input type="date" id="ca-from" value="${daysAgo(30)}"><input type="date" id="ca-to" value="${today()}"><button class="btn small danger" id="ca">מחק</button></div>
       <div class="opt"><div><b>הערות AI</b><small>כל התיאורים שה-AI רשם מהמצלמה</small></div><button class="btn small" id="cn">מחק הכל</button></div>
       <div class="opt"><div><b>אינדקס התמונות</b><small>שכחת כל התמונות שנסרקו (הקבצים עצמם לא נמחקים). אפשר גם תיקייה בודדת למטה.</small></div><button class="btn small danger" id="cp">נקה אינדקס</button></div>
-      <div id="folders" style="margin-top:8px">${st.folders.map(f => `<div class="row" style="padding:6px 0;border-top:1px solid var(--line);font-size:13px"><span class="grow" style="direction:ltr;text-align:right;overflow:hidden;text-overflow:ellipsis">${esc(f.folder)}</span><span class="muted">${f.count}</span><button class="ghost small" data-forget="${esc(f.folder)}">שכח</button></div>`).join("")}</div></div>
+      <div id="folders" style="margin-top:8px">${st.folders.map(f => `<div class="row folder-row"><span class="grow">${esc(f.folder)}</span><span class="muted">${f.count}</span><button class="ghost small" data-forget="${esc(f.folder)}">שכח</button></div>`).join("")}</div></div>
     <div class="card danger-zone"><h3>אזור מסוכן</h3>
       <div class="opt"><div><b>מחיקת כל יומן הנוכחות</b></div><button class="btn small danger" id="c-att">מחק</button></div>
       <div class="opt"><div><b>מחיקת כל הלא-מוכרים</b></div><button class="btn small danger" id="c-unk">מחק</button></div>
@@ -489,11 +532,11 @@ function drawUpdate() {
   const u = S.poll?.update || { version: S.boot.version, downloading: -1 };
   const av = u.available;
   c.innerHTML = `<h3>עדכון תוכנה <small>גרסה ${esc(u.version)}${u.frozen ? "" : " · מריץ מהקוד"}</small></h3>
-    ${av ? `<div class="note" style="border-style:solid;border-color:var(--ok);margin:0 0 12px"><b>גרסה ${esc(av.version)} זמינה!</b><br><span class="muted" style="font-size:13px;white-space:pre-line">${esc(av.notes.slice(0, 600))}</span></div>` : `<p class="muted" style="font-size:13.5px;margin-bottom:12px">${u.checked ? "אתה בגרסה העדכנית ביותר." : "עדיין לא נבדק."}</p>`}
+    ${av ? `<div class="note good" style="margin:0 0 12px"><b>גרסה ${esc(av.version)} זמינה</b><br><span class="muted" style="white-space:pre-line">${esc(av.notes.slice(0, 600))}</span></div>` : `<p class="hint" style="margin-bottom:12px">${u.checked ? "אתה בגרסה העדכנית ביותר." : "עדיין לא נבדק."}</p>`}
     ${u.downloading >= 0 ? `<div class="bar" style="margin-bottom:8px"><i style="width:${u.downloading}%"></i></div><p class="muted">מוריד… ${u.downloading}% — התוכנה תיסגר ותיפתח מחדש לבד.</p>` :
-      `<div class="row">${av ? `<button class="btn primary" id="upd-go">⬇ עדכן עכשיו</button>` : ""}<button class="btn" id="upd-chk">בדוק עכשיו</button></div>`}
+      `<div class="row">${av ? `<button class="btn primary" id="upd-go">${icon("download")}עדכן עכשיו</button>` : ""}<button class="btn" id="upd-chk">בדוק עכשיו</button></div>`}
     ${u.error ? `<p style="color:var(--bad);font-size:13px;margin-top:8px">${esc(u.error)}</p>` : ""}
-    <p class="muted" style="font-size:12.5px;margin-top:10px">התוכנה בודקת לבד כל חצי שעה. ${av && !u.frozen ? "מריצים מהקוד — כאן מעדכנים עם git pull." : ""}</p>`;
+    <p class="hint" style="margin-top:10px">התוכנה בודקת לבד כל חצי שעה. ${av && !u.frozen ? "מריצים מהקוד — כאן מעדכנים עם git pull." : ""}</p>`;
   $("#upd-chk") && ($("#upd-chk").onclick = async () => { $("#upd-chk").disabled = true; const r = await act("update/check"); if (r && !r.available) toast("אין עדכון חדש", "ok"); });
   $("#upd-go") && ($("#upd-go").onclick = () => act("update/install"));
 }
@@ -516,7 +559,7 @@ async function pollLoop() {
       if (S.page === "video") { videoSync(); if (ch("video")) loadVideo(); }
       if (S.page === "attendance" && ch("attendance")) loadAttendance();
       if (S.page === "data" && JSON.stringify(p.update) !== S.updJson) { S.updJson = JSON.stringify(p.update); drawUpdate(); }
-      const b = $("#chip-upd"); if (b) { b.hidden = !p.update?.available; if (p.update?.available) b.textContent = `⬇ גרסה ${p.update.available.version} זמינה`; }
+      const b = $("#chip-upd"); if (b) { b.hidden = !p.update?.available; if (p.update?.available) b.textContent = `גרסה ${p.update.available.version} זמינה`; }
       const badge = $('#menu [data-page="people"] .badge'); if (badge) badge.remove();
     } catch { /* השרת עסוק — ננסה שוב */ }
     await sleep(700);
@@ -525,7 +568,7 @@ async function pollLoop() {
 
 function setTheme(t) {
   document.documentElement.dataset.theme = t; try { localStorage.setItem("theme", t); } catch { }
-  $("#theme-btn").innerHTML = t === "light" ? "מצב לילה" : "מצב יום";
+  $("#theme-btn").innerHTML = t === "light" ? icon("moon") + "מצב לילה" : icon("sun") + "מצב יום";
 }
 
 (async function boot() {

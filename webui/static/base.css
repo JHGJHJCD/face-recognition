@@ -1,81 +1,93 @@
-/* שפת העיצוב: "משרד הרישום + עינית מצלמה". שולחן עבודה כהה, מסמכי נייר (תעודות, יומן), סימון צהוב של עינית, חותמות ירוק/אדום.
-   בלי גרדיאנטים, בלי זוהר, בלי כרטיסים זהים — רדיוס וגבול לפי תפקיד: נייר 3px, כפתור 6px, עינית 0. ראה docs/design.md */
-@font-face { font-family: "Frank"; font-weight: 500; src: url(fonts/frank-ruhl-libre-hebrew-500.woff2) format("woff2"); font-display: swap; }
-@font-face { font-family: "Frank"; font-weight: 900; src: url(fonts/frank-ruhl-libre-hebrew-900.woff2) format("woff2"); unicode-range: U+0590-05FF, U+200C-2010, U+20AA, U+FB1D-FB4F; font-display: swap; }
-@font-face { font-family: "Frank"; font-weight: 900; src: url(fonts/frank-ruhl-libre-latin-900.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2116; font-display: swap; }
-@font-face { font-family: "Plex"; font-weight: 400; src: url(fonts/heebo-hebrew-400.woff2) format("woff2"); unicode-range: U+0590-05FF, U+200C-2010, U+20AA, U+FB1D-FB4F; font-display: swap; }
-@font-face { font-family: "Plex"; font-weight: 400; src: url(fonts/heebo-latin-400.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F; font-display: swap; }
-@font-face { font-family: "Plex"; font-weight: 600; src: url(fonts/heebo-hebrew-600.woff2) format("woff2"); unicode-range: U+0590-05FF, U+200C-2010, U+20AA, U+FB1D-FB4F; font-display: swap; }
-@font-face { font-family: "Plex"; font-weight: 600; src: url(fonts/heebo-latin-600.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F; font-display: swap; }
+/* שפת העיצוב "איריס" (20/9/2026): כלי עבודה שקט ומדויק. גרפיט ניטרלי, צבע פעולה אחד (סגול-כחול של קשתית העין),
+   צבעי מצב שמורים לזיהוי בלבד (ירוק/כתום/אדום/צהוב). גופן אחד — Rubik משתנה. רדיוס לפי תפקיד. ראה docs/design.md */
+@font-face { font-family: "UI"; font-weight: 300 900; src: url(fonts/rubik-hebrew.woff2) format("woff2"); unicode-range: U+0590-05FF, U+200C-2010, U+20AA, U+FB1D-FB4F; font-display: swap; }
+@font-face { font-family: "UI"; font-weight: 300 900; src: url(fonts/rubik-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F, U+2116; font-display: swap; }
 
 :root {
-  --desk: #0e1116; --desk2: #151920; --panel: #1a1f28; --line: #2b323e; --line2: #3c4554;
-  --text: #ece6d8; --muted: #9aa2b1; --faint: #69717f;
-  --paper: #efe9db; --paper2: #e3dccb; --paper-ink: #1c2029; --paper-muted: #6b6657; --paper-line: #cfc6b1;
-  --mark: #f2b705; --mark-ink: #1a1500; --ok: #2e9e6b; --warn: #e08a1e; --bad: #d2452f;
-  --serif: "Frank", "David", "Times New Roman", serif; --sans: "Plex", "Segoe UI", Arial, sans-serif;
-  --ticks: repeating-linear-gradient(to left, var(--line2) 0 1px, transparent 1px 8px);
+  --bg: #15171c; --side: #101216; --surface: #1c1f26; --raised: #252a33; --field: #13151a;
+  --line: #2a2f39; --line2: #3b424f; --text: #e9ebf0; --muted: #979eac; --faint: #656c7a;
+  --accent: #8b94ff; --accent-hi: #a0a8ff; --accent-ink: #0e1033; --accent-soft: rgba(139, 148, 255, .13);
+  --ok: #3fba80; --warn: #eaa23c; --bad: #f06a58; --pending: #e8c547;
+  --ok-soft: rgba(63, 186, 128, .14); --warn-soft: rgba(234, 162, 60, .15); --bad-soft: rgba(240, 106, 88, .14);
+  --shadow: 0 18px 50px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .04);
+  --r-panel: 12px; --r-ctl: 8px; --r-img: 6px;
+  --ui: "UI", "Segoe UI", Arial, sans-serif;
+  color-scheme: dark;
 }
 :root[data-theme="light"] {
-  --desk: #d9d4c7; --desk2: #cfc9ba; --panel: #f4efe3; --line: #c4bba6; --line2: #a89f89;
-  --text: #1c2029; --muted: #5f5a4c; --faint: #8c8572;
-  --paper: #fbf8f0; --paper2: #f1ecdf; --paper-line: #d6cdb8;
-  --mark: #d9a300; --ok: #1f7d53; --warn: #b96c0f; --bad: #b8371f;
+  --bg: #f4f5f7; --side: #eaecf0; --surface: #ffffff; --raised: #f3f4f7; --field: #ffffff;
+  --line: #e1e4ea; --line2: #cbd0d9; --text: #181b21; --muted: #5c6370; --faint: #8e95a1;
+  --accent: #4953e0; --accent-hi: #3a44cf; --accent-ink: #ffffff; --accent-soft: rgba(73, 83, 224, .09);
+  --ok: #1d8d59; --warn: #b5700b; --bad: #cd3e2b; --pending: #a88400;
+  --ok-soft: rgba(29, 141, 89, .1); --warn-soft: rgba(181, 112, 11, .11); --bad-soft: rgba(205, 62, 43, .09);
+  --shadow: 0 18px 50px rgba(24, 27, 33, .18), 0 0 0 1px rgba(24, 27, 33, .06);
+  color-scheme: light;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
-body { background: var(--desk); color: var(--text); font: 15px/1.55 var(--sans); overflow: hidden; user-select: none; }
+body { background: var(--bg); color: var(--text); font: 400 14.5px/1.55 var(--ui); overflow: hidden; user-select: none; -webkit-font-smoothing: antialiased; }
 h1, h2, h3, p, dl, dd { margin: 0; }
+svg { flex: none; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 5px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--faint); }
 ::-webkit-scrollbar-track { background: transparent; }
-:focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--accent-soft); }
+kbd { font: 500 11px var(--ui); color: var(--faint); border: 1px solid var(--line2); border-radius: 4px; padding: 0 5px; direction: ltr; line-height: 17px; }
 
-/* ---------- פתיחה: סוגרי העינית ננעלים על הנקודה (התנועה היזומה היחידה בתוכנה) ---------- */
-#splash { position: fixed; inset: 0; display: grid; place-items: center; background: var(--desk); z-index: 50; }
-.splash-box { text-align: center; display: grid; gap: 12px; justify-items: center; }
-.splash-box h1 { font: 900 44px/1 var(--serif); }
-.splash-box p { color: var(--muted); font-size: 16px; }
-.splash-box small { color: var(--faint); max-width: 420px; }
-.loader { width: 280px; height: 3px; background: var(--line); overflow: hidden; }
-.loader i { display: block; width: 35%; height: 100%; background: var(--mark); animation: slide 1.4s ease-in-out infinite; }
-@keyframes slide { 0% { transform: translateX(280px); } 100% { transform: translateX(-100px); } }
-.logo { width: 38px; height: 38px; position: relative; flex: none; color: var(--mark);
-  background: linear-gradient(currentColor, currentColor) 0 0 / 11px 3px, linear-gradient(currentColor, currentColor) 0 0 / 3px 11px,
-    linear-gradient(currentColor, currentColor) 100% 0 / 11px 3px, linear-gradient(currentColor, currentColor) 100% 0 / 3px 11px,
-    linear-gradient(currentColor, currentColor) 0 100% / 11px 3px, linear-gradient(currentColor, currentColor) 0 100% / 3px 11px,
-    linear-gradient(currentColor, currentColor) 100% 100% / 11px 3px, linear-gradient(currentColor, currentColor) 100% 100% / 3px 11px;
-  background-repeat: no-repeat; }
-.logo span { position: absolute; inset: 13px; border-radius: 50%; background: var(--text); }
-.logo.big { width: 96px; height: 96px; animation: lock 1.1s cubic-bezier(.2, .9, .2, 1) both; }
-.logo.big span { inset: 36px; }
-@keyframes lock { from { transform: scale(1.9); opacity: 0; } 60% { opacity: 1; } to { transform: none; } }
+/* ---------- פתיחה: הקשתית מתמקדת (התנועה היזומה היחידה) ---------- */
+#splash { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); z-index: 50; }
+.splash-box { text-align: center; display: grid; gap: 10px; justify-items: center; }
+.splash-box h1 { font: 600 26px/1.2 var(--ui); margin-top: 10px; }
+.splash-box p { color: var(--muted); }
+.splash-box small { color: var(--faint); max-width: 380px; font-size: 12.5px; }
+.loader { width: 220px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; margin: 8px 0; }
+.loader i { display: block; width: 35%; height: 100%; border-radius: 2px; background: var(--accent); animation: slide 1.3s ease-in-out infinite; transition: width .3s; }
+@keyframes slide { 0% { transform: translateX(220px); } 100% { transform: translateX(-80px); } }
+.logo { width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid var(--accent); position: relative; flex: none; }
+.logo span { position: absolute; inset: 6px; border-radius: 50%; background: var(--accent); }
+.logo span::after { content: ""; position: absolute; width: 28%; height: 28%; border-radius: 50%; background: var(--bg); top: 18%; inset-inline-start: 18%; }
+.logo.big { width: 72px; height: 72px; border-width: 5px; animation: focus 1s cubic-bezier(.2, .8, .2, 1) both; }
+.logo.big span { inset: 15px; }
+@keyframes focus { from { transform: scale(1.5); filter: blur(7px); opacity: 0; } to { transform: none; filter: none; opacity: 1; } }
 
-/* ---------- שלד: לשוניות-חוצץ של קלסר בצד, הדף במרכז ---------- */
-#app { display: grid; grid-template-columns: 228px 1fr; grid-template-rows: 100vh; height: 100vh; overflow: hidden; }
-.nav { min-height: 0; overflow: auto; background: var(--desk2); display: flex; flex-direction: column; padding: 22px 0 16px; gap: 22px; border-inline-end: 1px solid var(--line); }
-.brand { display: flex; gap: 12px; align-items: center; padding: 0 20px; }
-.brand b { display: block; font: 900 21px/1.1 var(--serif); }
-.brand small { color: var(--faint); font-size: 11.5px; direction: ltr; display: block; }
-#menu { display: grid; gap: 3px; padding-inline-start: 14px; }
-#menu button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 16px; border: 1px solid transparent; border-inline-end: 0;
-  border-radius: 0; border-start-start-radius: 8px; border-end-start-radius: 8px; background: transparent; color: var(--muted); font: 600 14.5px var(--sans);
-  cursor: pointer; text-align: start; position: relative; }
-#menu button svg { width: 19px; height: 19px; flex: none; stroke-width: 1.7; }
-#menu button:hover { color: var(--text); background: var(--panel); }
-#menu button.on { background: var(--desk); color: var(--text); border-color: var(--line); margin-inline-end: -1px; }
-#menu button.on::before { content: ""; position: absolute; inset-inline-start: -1px; top: -1px; bottom: -1px; width: 5px; background: var(--mark); border-start-start-radius: 8px; border-end-start-radius: 8px; }
-.nav-foot { margin-top: auto; display: grid; gap: 6px; padding: 0 16px; }
-.chip { font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; padding: 2px 4px; }
-.chip::before { content: ""; width: 7px; height: 7px; background: var(--ok); flex: none; }
+/* ---------- שלד ---------- */
+#app { display: grid; grid-template-columns: 216px 1fr; grid-template-rows: 100vh; height: 100vh; overflow: hidden; }
+.nav { min-height: 0; overflow: auto; background: var(--side); display: flex; flex-direction: column; padding: 16px 10px 12px; gap: 14px; border-inline-end: 1px solid var(--line); }
+.brand { display: flex; gap: 10px; align-items: center; padding: 2px 8px; }
+.brand b { display: block; font-weight: 600; font-size: 15px; line-height: 1.2; }
+.brand small { color: var(--faint); font-size: 11px; direction: ltr; display: block; text-align: end; }
+.nav-search { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); border: 1px solid var(--line); background: var(--bg);
+  color: var(--faint); font: inherit; font-size: 13px; cursor: pointer; }
+.nav-search:hover { border-color: var(--line2); color: var(--muted); }
+.nav-search svg { width: 15px; height: 15px; }
+.nav-search kbd { margin-inline-start: auto; }
+#menu { display: grid; gap: 1px; }
+#menu .group { font-size: 11.5px; color: var(--muted); padding: 12px 10px 4px; font-weight: 500; }
+#menu .group:first-child { padding-top: 0; }
+#menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--r-ctl); background: transparent;
+  color: var(--muted); font: 450 14px var(--ui); cursor: pointer; text-align: start; position: relative; transition: background .1s, color .1s; }
+#menu button svg { width: 17px; height: 17px; stroke-width: 1.75; }
+#menu button kbd { margin-inline-start: auto; border: 0; opacity: 0; transition: opacity .1s; }
+#menu button:hover { color: var(--text); background: var(--surface); }
+#menu button:hover kbd, #menu button.on kbd { opacity: 1; }
+#menu button.on { background: var(--raised); color: var(--text); font-weight: 500; }
+#menu button.on svg { color: var(--accent); }
+.nav-foot { margin-top: auto; display: grid; gap: 2px; padding: 10px 4px 0; border-top: 1px solid var(--line); }
+.chip { font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; padding: 2px 6px; }
+.chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
 .chip.off::before { background: var(--faint); }
+.nav-foot .btn { margin-top: 6px; }
+.nav-foot .ghost { justify-self: start; margin-top: 4px; display: inline-flex; gap: 7px; align-items: center; }
 
 main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100vh; overflow: hidden; }
-.top { display: flex; justify-content: space-between; align-items: flex-end; padding: 26px 32px 14px; gap: 16px; position: relative; }
-.top::after { content: ""; position: absolute; inset-inline: 32px; bottom: 0; height: 7px; background: var(--ticks); border-bottom: 1px solid var(--line2); }
-.top h2 { font: 900 40px/1 var(--serif); letter-spacing: -.5px; }
-.top p { color: var(--muted); font-size: 13.5px; margin-top: 8px; }
-.top-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; padding-bottom: 6px; }
-#page { flex: 1; min-height: 0; padding: 22px 32px 26px; overflow: auto; overflow-x: hidden; }
+.top { display: flex; justify-content: space-between; align-items: center; padding: 14px 28px; gap: 16px; border-bottom: 1px solid var(--line); min-height: 68px; }
+.top h2 { font: 600 19px/1.25 var(--ui); letter-spacing: -.1px; }
+.top p { color: var(--muted); font-size: 13px; margin-top: 1px; }
+.top p:empty { display: none; }
+.top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+#page { flex: 1; min-height: 0; padding: 22px 28px 24px; overflow: auto; overflow-x: hidden; animation: page .16s ease-out; }
+@keyframes page { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
