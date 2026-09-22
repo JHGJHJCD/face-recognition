@@ -6,6 +6,7 @@
 import base64
 import json
 import os
+import queue
 import secrets
 import shutil
 import sys
@@ -41,6 +42,19 @@ MODEL_TITLES = {"glintr100": "ArcFace R100 · Glint360K", "w600k_r50": "ArcFace 
 
 class ApiError(Exception):
     pass
+
+
+def _netfree_blocks(url):
+    """האם נטפרי חוסם את דף הסרטון (HTTP 418). כל תקלה אחרת = לא חסום (ננסה לנגן)."""
+    import urllib.error
+    import urllib.request
+    try:
+        urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=10).close()
+    except urllib.error.HTTPError as e:
+        return e.code == 418
+    except Exception:
+        pass
+    return False
 
 
 class Loader(QThread):
@@ -456,20 +470,42 @@ class Backend(QObject):
         url = ai.youtube_url(text)
         if not url:
             raise ApiError("זה לא נראה כמו קישור יוטיוב")
-        self.in_main(lambda: self._video_start(url, youtube=True))
-        return {"started": True}
+        blocked = _netfree_blocks(url)      # נטפרי חוסם סרטונים מסוימים (418) — אז אין טעם לפתוח נגן, נשארת בדיקת Gemini מהקישור
+        self.in_main(lambda: self._video_start(url, youtube=True, blocked=blocked))
+        return {"started": True, "blocked": blocked}
 
-    def _video_start(self, path, youtube=False):
-        cls = YouTubeWorker if youtube else VideoScanWorker
-        w = cls(self.engine, self.db, self.settings, path, self._gemini())
+    def _video_start(self, path, youtube=False, blocked=False):
+        self._close_player()
+        if youtube and blocked:
+            w = YouTubeWorker(self.engine, self.db, self.settings, path, self._gemini(), None,
+                              ["נטפרי חוסם את הסרטון הזה במחשב — זיהוי אנשים לא אפשרי; בוצעה רק בדיקת Gemini מהקישור (בצד של גוגל)."])
+        elif youtube:
+            # הנגן (חלון Qt, חוט ראשי) מזרים פריימים לתור; החוט מנתח. בלי הורדה — עובד גם בנטפרי.
+            from webui.ytplayer import YouTubePlayer
+            frames = queue.Queue(maxsize=60)
+            self.yt_player = YouTubePlayer(path, frames, self)
+            w = YouTubeWorker(self.engine, self.db, self.settings, path, self._gemini(), frames)
+        else:
+            w = VideoScanWorker(self.engine, self.db, self.settings, path, self._gemini())
         w.progress.connect(self._video_progress)
         w.finished_scan.connect(self._video_done)
         self.video_result = None
         self.video.update(running=True, pct=0, file=path if youtube else os.path.basename(path), status="", notes=[],
-                          phase="מתחבר ליוטיוב…" if youtube else "סורק…")
+                          phase="פותח את הסרטון ביוטיוב…" if youtube else "סורק…")
         self.video_worker = w
         w.start()
         self.bump("video")
+
+    def _close_player(self):
+        p = getattr(self, "yt_player", None)
+        if p is not None:
+            self.yt_player = None
+            p.close()
+
+    def video_stop(self):
+        if self.video_worker:
+            self.video_worker.stop_flag = True
+        self.in_main(self._close_player)
 
     def _video_progress(self, pct, frame, msg=""):
         self.video["pct"] = pct
@@ -484,6 +520,7 @@ class Backend(QObject):
 
     def _video_done(self, res):
         self.video_worker = None
+        self._close_player()
         self.video["running"] = False
         if "error" in res:
             self.video["status"] = res["error"]
@@ -691,6 +728,7 @@ class Backend(QObject):
 
     def shutdown(self):
         self._camera_off()
+        self._close_player()
         for w in (self.photo_worker, self.video_worker):
             if w:
                 w.stop_flag = True
@@ -914,9 +952,7 @@ def make_handler(be, token):
             if name == "video/url":
                 return be.video_scan_url(str(b.get("url", "")))
             if name == "video/stop":
-                if be.video_worker:
-                    be.video_worker.stop_flag = True
-                return
+                return be.video_stop()
             if name == "video/name":
                 return be.video_name(int(b["idx"]), be.person_from(b))
             if name == "video/export":

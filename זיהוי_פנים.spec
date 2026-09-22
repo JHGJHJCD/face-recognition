@@ -16,7 +16,7 @@ a = Analysis(
     binaries=ov_bins,
     datas=[("webui/static", "webui/static"), ("icon.ico", "."), *ov_datas],
     hiddenimports=["core.engine", "core.db", "core.live", "core.jobs", "core.ai", "core.reports", "core.updater", "core.utils",
-                   "webui.backend", "version", "openpyxl", "openpyxl.cell._writer", "et_xmlfile", "truststore", "yt_dlp",
+                   "webui.backend", "webui.ytplayer", "version", "openpyxl", "openpyxl.cell._writer", "et_xmlfile", "truststore", "yt_dlp",
                    "PyQt6.QtWebEngineCore", "PyQt6.QtWebEngineWidgets", "PyQt6.QtWebChannel", "PyQt6.QtNetwork"],
     hookspath=[],
     hooksconfig={},

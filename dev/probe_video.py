@@ -12,6 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
+from webui import ytplayer  # noqa: E402,F401  (חייב לפני QApplication — QtWebEngine)
 from webui.backend import Backend, start_server  # noqa: E402
 
 app = QApplication(sys.argv)
@@ -27,8 +28,11 @@ def get(name):
 
 def post(name, body):
     req = urllib.request.Request(url + "api/" + name, json.dumps(body).encode(), {"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return {"http": e.code, "body": e.read().decode("utf-8", "ignore")[:400]}
 
 
 def work():

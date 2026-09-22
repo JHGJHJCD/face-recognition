@@ -373,7 +373,7 @@ function videoSync() {
   $("#v-scan").innerHTML = v.running ? icon("stop") + "עצור" : icon("video") + "בחר קובץ וסרוק";
   $("#v-go").disabled = v.running;
   $("#v-progress").hidden = !v.running; $("#v-bar").style.width = v.pct + "%"; $("#v-phase").textContent = v.phase || "";
-  $("#v-status").textContent = v.running ? `${v.file} · ${v.pct}%` : (v.file ? `${v.file} · ${v.status}` : "בחר קובץ וידאו או הדבק קישור יוטיוב: התוכנה מוצאת מי מופיע, ובאילו קטעים יש נשים או ילדות (הגיל לפי Gemini).");
+  $("#v-status").textContent = v.running ? `${v.file} · ${v.pct}%${v.phase ? " · " + v.phase : ""}` : (v.file ? `${v.file} · ${v.status}` : "בחר קובץ וידאו או הדבק קישור יוטיוב: התוכנה מוצאת מי מופיע, ובאילו קטעים יש נשים או ילדות (הגיל לפי Gemini).");
   $("#v-notes").innerHTML = (v.notes || []).map(n => `<p class="muted" style="color:var(--warn)">${esc(n)}</p>`).join("");
   if (v.preview && v.preview !== S.vPrev) { S.vPrev = v.preview; const im = $("#v-prev"); im.hidden = false; im.src = "img/videopreview?n=" + v.preview; }
 }
@@ -386,7 +386,7 @@ async function loadVideo() {
   $$("#v-body tr[data-idx]").forEach(tr => tr.onclick = () => { S.videoSel = +tr.dataset.idx; loadVideo(); });
   $("#v-sum").textContent = r.summary || "";
   $("#v-fem").innerHTML = r.females.map(f => {
-    const who = f.small ? `<span class="tag">ילדה קטנה</span>` : `<span class="tag ${f.kind === "אישה" ? "ok" : ""}">${esc(f.kind)}</span>`;
+    const who = f.small ? `<span class="tag ok">ילדה קטנה</span>` : `<span class="tag">${esc(f.kind)}</span>`;
     const dim = f.ai_female === false ? ' style="opacity:.5"' : "";
     return `<tr${dim}><td>${f.thumb ? `<img src="img/vidf/${f.idx}?v=${S.rev.video}">` : ""}</td><td>${who}</td><td>${f.age != null ? "~" + f.age : ""}</td>
       <td dir="ltr" style="text-align:right">${esc(f.start)}–${esc(f.end)}</td><td class="muted">${esc(f.source)}</td><td class="muted">${esc(f.ai)}</td></tr>`;

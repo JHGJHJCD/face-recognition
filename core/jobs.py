@@ -1,7 +1,7 @@
 """עבודות רקע: סריקת תיקיות תמונות וסריקת סרטוני וידאו."""
 import os
+import queue
 import threading
-import time
 
 import cv2
 import numpy as np
@@ -9,7 +9,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from . import ai
 from .db import cluster_embeddings
-from .utils import DATA_DIR, IMAGE_EXT, crop_square, imread, jpg_bytes, short_path
+from .utils import DATA_DIR, IMAGE_EXT, crop_square, fmt_time, imread, jpg_bytes, short_path
 
 
 def enroll_from_image(engine, img):
@@ -123,6 +123,74 @@ def _ts(text):
     return sec
 
 
+class FrameAnalyzer:
+    """מנתח פריימים אחד-אחד (מקובץ או מנגן יוטיוב): זיהוי פנים + סיווג נשים/ילדות. feed(frame, t) ואז finish()."""
+
+    def __init__(self, engine, db, st, gemini=None):
+        self.engine, self.db, self.st, self.gemini = engine, db, st, gemini
+        self.step = max(0.2, float(st["video_step"]))
+        self.girl_age = float(st.get("girl_age", 7))
+        self.seen = {}                 # pid -> [(זמן, דמיון)]
+        self.best = {}                 # pid -> (דמיון, thumb)
+        self.unk_embs, self.unk_meta = [], []
+        self.fem = []                  # (זמן, גיל משוער, thumb, איכות) — כל פנים שסווגו כנשיות
+        self.fem_frames = {}           # דלי של 5 שנ' -> (איכות, זמן, JPEG של הפריים המלא) — לאימות Gemini עם הקשר של הגוף
+        self.last_t = 0.0
+        self.times = []                # זמני הדגימות — למרווח בפועל (בנגן יוטיוב הוא לא קבוע)
+        self.snaps = {}                # דלי של 5 שנ' -> JPEG קטן של הפריים — תמונה לקטעים של Gemini כשאין קובץ
+
+    def feed(self, frame, t):
+        frame = _small(frame, 1920)
+        self.last_t = max(self.last_t, t)
+        self.times.append(t)
+        self.snaps.setdefault(int(t // 5), jpg_bytes(_small(frame, 320), 80))
+        faces = [f for f in self.engine.detect(frame, 0.55) if f.size >= 40]
+        self.engine.embed(frame, faces)
+        for f in faces:
+            pid, sim = self.db.match(f.emb, self.st["threshold"])
+            if pid is not None:
+                self.seen.setdefault(pid, []).append((t, sim))
+                if pid not in self.best or sim > self.best[pid][0]:
+                    self.best[pid] = (sim, jpg_bytes(crop_square(frame, f.bbox, size=112)))
+            elif f.size >= 60 and f.det > 0.65:
+                self.unk_embs.append(f.emb)
+                self.unk_meta.append((t, jpg_bytes(crop_square(frame, f.bbox, size=112)), f.size * f.frontal))
+            try:
+                self.engine.gender_age(frame, f)
+            except Exception:
+                continue
+            if f.male is False:
+                q = f.size * (0.3 + f.frontal) * f.det
+                self.fem.append((t, float(f.age), jpg_bytes(crop_square(frame, f.bbox, margin=0.6, size=112)), q))
+                b = int(t // 5)
+                if b not in self.fem_frames or q > self.fem_frames[b][0]:
+                    self.fem_frames[b] = (q, t, jpg_bytes(_small(frame, 800), 80))
+        return faces
+
+    def snap(self, t):
+        return self.snaps.get(int(t // 5)) or (self.snaps[min(self.snaps, key=lambda b: abs(b * 5 - t))] if self.snaps else None)
+
+    def finish(self, stop, progress, duration=None):
+        ts = sorted(self.times)
+        gaps = sorted(b - a for a, b in zip(ts, ts[1:]) if b > a)
+        if gaps:
+            self.step = max(self.step, gaps[len(gaps) // 2])      # מרווח חציוני בפועל — כדי שלא יתפצל לקטעים של שנייה
+        people = []
+        for pid, hits in self.seen.items():
+            r = _ranges(sorted(t for t, _ in hits), self.step)
+            people.append({"name": self.db.names.get(pid, "?"), "thumb": self.best[pid][1], "ranges": r,
+                           "total": sum(b - a for a, b in r), "sim": float(np.mean([s for _, s in hits])), "known": True})
+        people.sort(key=lambda p: -p["total"])
+        for n, grp in enumerate(cluster_embeddings(self.unk_embs, 0.45, min_size=2), 1):
+            r = _ranges(sorted(self.unk_meta[i][0] for i in grp), self.step)
+            order = sorted(grp, key=lambda i: -self.unk_meta[i][2])
+            people.append({"name": f"לא מוכר {n}", "thumb": self.unk_meta[order[0]][1], "ranges": r, "total": sum(b - a for a, b in r),
+                           "sim": 0.0, "known": False, "embs": [self.unk_embs[i] for i in order[:8]],
+                           "thumbs": [self.unk_meta[i][1] for i in order[:8]]})
+        females = _female_segments(self.fem, self.fem_frames, self.step, self.girl_age, self.gemini, stop, progress)
+        return {"people": people, "females": females, "duration": duration if duration else self.last_t, "stopped": stop()}
+
+
 def scan_video(engine, db, st, path, progress, stop, gemini=None):
     """סורק קובץ וידאו. progress(pct, frame|None, msg) · stop() → True לעצירה · gemini = GeminiClient או None.
     מחזיר {"people": [...], "females": [...], "duration": שניות, "stopped": bool} או {"error": ...}."""
@@ -131,14 +199,8 @@ def scan_video(engine, db, st, path, progress, stop, gemini=None):
         return {"error": "לא הצלחתי לפתוח את קובץ הווידאו."}
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
-    step = max(0.2, float(st["video_step"]))
-    every = max(1, int(round(fps * step)))
-    girl_age = float(st.get("girl_age", 7))
-    seen = {}                 # pid -> [(זמן, דמיון)]
-    best = {}                 # pid -> (דמיון, thumb)
-    unk_embs, unk_meta = [], []
-    fem = []                  # (זמן, גיל משוער, thumb, איכות) — כל פנים שסווגו כנשיות
-    fem_frames = {}           # דלי של 5 שנ' -> (איכות, זמן, JPEG של הפריים המלא) — לאימות Gemini עם הקשר של הגוף
+    an = FrameAnalyzer(engine, db, st, gemini)
+    every = max(1, int(round(fps * an.step)))
     idx = 0
     while not stop():
         if not cap.grab():
@@ -146,47 +208,11 @@ def scan_video(engine, db, st, path, progress, stop, gemini=None):
         if idx % every == 0:
             ok, frame = cap.retrieve()
             if ok and frame is not None:
-                frame = _small(frame, 1920)
-                t = idx / fps
-                faces = [f for f in engine.detect(frame, 0.55) if f.size >= 40]
-                engine.embed(frame, faces)
-                for f in faces:
-                    pid, sim = db.match(f.emb, st["threshold"])
-                    if pid is not None:
-                        seen.setdefault(pid, []).append((t, sim))
-                        if pid not in best or sim > best[pid][0]:
-                            best[pid] = (sim, jpg_bytes(crop_square(frame, f.bbox, size=112)))
-                    elif f.size >= 60 and f.det > 0.65:
-                        unk_embs.append(f.emb)
-                        unk_meta.append((t, jpg_bytes(crop_square(frame, f.bbox, size=112)), f.size * f.frontal))
-                    try:
-                        engine.gender_age(frame, f)
-                    except Exception:
-                        continue
-                    if f.male is False:
-                        q = f.size * (0.3 + f.frontal) * f.det
-                        fem.append((t, float(f.age), jpg_bytes(crop_square(frame, f.bbox, margin=0.6, size=112)), q))
-                        b = int(t // 5)
-                        if b not in fem_frames or q > fem_frames[b][0]:
-                            fem_frames[b] = (q, t, jpg_bytes(_small(frame, 800), 80))
+                an.feed(frame, idx / fps)
                 progress(int(idx * 100 / total), frame if (idx // every) % 3 == 0 else None, "")
         idx += 1
     cap.release()
-
-    people = []
-    for pid, hits in seen.items():
-        r = _ranges(sorted(t for t, _ in hits), step)
-        people.append({"name": db.names.get(pid, "?"), "thumb": best[pid][1], "ranges": r,
-                       "total": sum(b - a for a, b in r), "sim": float(np.mean([s for _, s in hits])), "known": True})
-    people.sort(key=lambda p: -p["total"])
-    for n, grp in enumerate(cluster_embeddings(unk_embs, 0.45, min_size=2), 1):
-        r = _ranges(sorted(unk_meta[i][0] for i in grp), step)
-        order = sorted(grp, key=lambda i: -unk_meta[i][2])
-        people.append({"name": f"לא מוכר {n}", "thumb": unk_meta[order[0]][1], "ranges": r, "total": sum(b - a for a, b in r),
-                       "sim": 0.0, "known": False, "embs": [unk_embs[i] for i in order[:8]], "thumbs": [unk_meta[i][1] for i in order[:8]]})
-
-    females = _female_segments(fem, fem_frames, step, girl_age, gemini, stop, progress)
-    return {"people": people, "females": females, "duration": idx / fps, "stopped": stop()}
+    return an.finish(stop, progress, idx / fps)
 
 
 def _female_segments(fem, frames, step, girl_age, gemini, stop, progress):
@@ -326,14 +352,46 @@ class VideoScanWorker(QThread):
 
 
 class YouTubeWorker(QThread):
-    """קישור יוטיוב: Gemini צופה בסרטון מהקישור (חוט נפרד) ובמקביל הורדה + סריקה מקומית לזיהוי פנים."""
+    """קישור יוטיוב, שלושה מסלולים במקביל/בגיבוי:
+    1. player — נגן יוטיוב בתוך חלון של התוכנה (webui/ytplayer.py) מזרים לנו פריימים דרך תור (frames), בלי הורדה. זה עובד גם בנטפרי.
+    2. Gemini צופה בסרטון מהקישור בצד של גוגל (חוט נפרד) — קטעי נשים/ילדות של כל הסרטון.
+    3. אם אין נגן / הנגן נכשל — הורדה עם yt-dlp (נכשלת בנטפרי) וסריקה מקומית."""
     progress = pyqtSignal(int, object, str)
     finished_scan = pyqtSignal(object)
 
-    def __init__(self, engine, db, settings, url, gemini=None):
+    def __init__(self, engine, db, settings, url, gemini=None, frames=None, notes=()):
         super().__init__()
         self.engine, self.db, self.st, self.url, self.gemini = engine, db, settings, url, gemini
+        self.frames = frames          # queue.Queue של (זמן, אורך, frame) ; (None, אורך, "ended"|"error:…") בסיום
+        self.pre_notes = list(notes)  # הודעות שכבר ידועות (למשל: נטפרי חוסם את הסרטון — אין נגן)
         self.stop_flag = False
+
+    def _from_player(self, stop):
+        """מנתח פריימים מהנגן עד סיום. מחזיר (תוצאה, הודעת שגיאה)."""
+        an = FrameAnalyzer(self.engine, self.db, self.st, self.gemini)
+        last_key, duration, n = -1, 0.0, 0
+        while not stop():
+            try:
+                t, duration, frame = self.frames.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            if t is None:
+                if isinstance(frame, str) and frame.startswith("error:"):
+                    return None, frame[6:]
+                break
+            key = int(t / an.step)
+            if key == last_key:       # אותו רגע בסרטון (הנגן מושהה/טוען) — לא סופרים פעמיים
+                continue
+            last_key = key
+            n += 1
+            an.feed(frame, t)
+            pct = int(t * 100 / duration) if duration else 0
+            self.progress.emit(pct, frame if n % 3 == 0 else None, f"מנתח בתוך יוטיוב… {fmt_time(t)} / {fmt_time(duration)}")
+        if n == 0:
+            return None, "לא התקבלו פריימים מהנגן"
+        res = an.finish(stop, self.progress.emit, duration)
+        res["snap"] = an.snap
+        return res, ""
 
     def run(self):
         stop = lambda: self.stop_flag  # noqa: E731
@@ -348,23 +406,28 @@ class YouTubeWorker(QThread):
                     box["error"] = str(e)
             th = threading.Thread(target=ai_pass, daemon=True)
             th.start()
-        notes, res, path = [], None, None
-        try:
-            path = download_youtube(self.url, self.progress.emit, stop)
-        except Exception as e:
-            msg = str(e)
-            if "418" in msg or "NetFree" in msg:
-                notes.append("יוטיוב חסום במחשב הזה (נטפרי) — זיהוי האנשים דורש את קובץ הסרטון; בוצעה רק בדיקת Gemini מהקישור.")
-            elif "Cancelled" in type(e).__name__:
-                notes.append("ההורדה בוטלה.")
-            else:
-                notes.append("ההורדה מיוטיוב נכשלה: " + msg[:160])
-        if path and not stop():
-            self.progress.emit(0, None, "סורק פנים בסרטון…")
+        notes, res, path = list(self.pre_notes), None, None
+        if self.frames is not None:
+            res, err = self._from_player(stop)
+            if res is None and not stop():
+                notes.append("הנגן של יוטיוב לא הצליח להריץ את הסרטון (" + err + ") — מנסה להוריד.")
+        if res is None and not stop() and not self.pre_notes:
             try:
-                res = scan_video(self.engine, self.db, self.st, path, self.progress.emit, stop, self.gemini)
+                path = download_youtube(self.url, self.progress.emit, stop)
             except Exception as e:
-                notes.append(f"שגיאה בסריקה המקומית: {e}")
+                msg = str(e)
+                if "418" in msg or "NetFree" in msg:
+                    notes.append("גם ההורדה חסומה (נטפרי) — זיהוי האנשים לא בוצע; נשארה בדיקת Gemini מהקישור.")
+                elif "Cancelled" in type(e).__name__:
+                    notes.append("ההורדה בוטלה.")
+                else:
+                    notes.append("ההורדה מיוטיוב נכשלה: " + msg[:160])
+            if path and not stop():
+                self.progress.emit(0, None, "סורק פנים בסרטון…")
+                try:
+                    res = scan_video(self.engine, self.db, self.st, path, self.progress.emit, stop, self.gemini)
+                except Exception as e:
+                    notes.append(f"שגיאה בסריקה המקומית: {e}")
         if res is None or "error" in res:
             if res:
                 notes.append(res["error"])
@@ -374,12 +437,13 @@ class YouTubeWorker(QThread):
                 self.progress.emit(100, None, "Gemini צופה בסרטון המלא מהקישור…")
                 th.join(1.0)
             if "segs" in box:
-                if path:
-                    for s in box["segs"]:
-                        s["thumb"] = _frame_at(path, (s["start"] + s["end"]) / 2)
+                for s in box["segs"]:
+                    mid = (s["start"] + s["end"]) / 2
+                    s["thumb"] = _frame_at(path, mid) if path else (res["snap"](mid) if "snap" in res else None)
                 res["females"] = sorted(res["females"] + box["segs"], key=lambda s: s["start"])
                 res["ai_summary"] = box.get("summary", "")
             elif "error" in box:
                 notes.append("בדיקת Gemini מהקישור נכשלה: " + box["error"][:160])
+        res.pop("snap", None)
         res["url"], res["notes"], res["file"] = self.url, notes, path or ""
         self.finished_scan.emit(res)
