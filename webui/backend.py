@@ -226,6 +226,8 @@ class Backend(QObject):
             self.frame_cond.notify_all()
 
     def get_frame(self, last):
+        if self.live:
+            self.live.last_view = time.time()
         with self.frame_cond:
             if self.frame_id <= last or self.frame is None:
                 self.frame_cond.wait(1.0)
@@ -902,6 +904,10 @@ def make_handler(be, token):
             db = be.need_db()
             if name == "camera":
                 return be.camera(bool(b.get("on")))
+            if name == "camera/pause":       # חלון הקלדה נפתח/נסגר — המצלמה משוחררת בינתיים (ההקלדה נתקעה בגללה; ראה live.run)
+                if be.live:
+                    be.live.paused = bool(b.get("on"))
+                return
             if name == "enroll/start":
                 return be.enroll_start(be.person_from(b))
             if name == "enroll/cancel":

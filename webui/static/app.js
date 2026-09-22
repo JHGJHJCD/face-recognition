@@ -69,7 +69,10 @@ function modal(html, onMount) {
   return new Promise(resolve => {
     const o = document.createElement("div");
     o.className = "overlay"; o.innerHTML = `<div class="modal">${html}</div>`;
-    const close = v => { o.remove(); document.removeEventListener("keydown", key); resolve(v); };
+    // בזמן שחלון פתוח המצלמה מושהית — הזרמת המצלמה מקפיאה את ההקלדה (נמדד 22/9)
+    const pause = on => { if (S.camera) api("camera/pause", { on }).catch(() => { }); };
+    pause(true);
+    const close = v => { o.remove(); document.removeEventListener("keydown", key); pause(false); resolve(v); };
     const key = e => { if (e.key === "Escape") close(null); if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") $("[data-ok]", o)?.click(); };
     document.addEventListener("keydown", key);
     o.addEventListener("mousedown", e => { if (e.target === o) close(null); });
@@ -213,7 +216,7 @@ function drawFeed() {
 async function frameLoop() {
   let last = 0;
   while (true) {
-    if (!S.camera || S.page !== "live" || document.hidden) { await sleep(250); continue; }
+    if (!S.camera || S.page !== "live" || document.hidden || $(".overlay")) { await sleep(250); continue; }   // חלון פתוח — לא מציירים מאחוריו
     try {
       const r = await fetch("frame?last=" + last);
       if (r.status !== 200) { await sleep(60); continue; }
@@ -573,6 +576,7 @@ async function pollLoop() {
         if (p.enroll.done.ok && $(".stage")) { const st = document.createElement("div"); st.className = "stamp"; st.textContent = "נרשם"; $(".stage").append(st); setTimeout(() => st.remove(), 2600); }
         toast(p.enroll.done.text, p.enroll.done.ok ? "ok" : "bad"); act("enroll/ack"); }
       const ch = k => prev[k] !== undefined && prev[k] !== p.rev[k];
+      if ($(".overlay")) { await sleep(700); continue; }   // חלון פתוח (הקלדת שם) — לא כותבים מחדש את המסך מאחוריו; ממשיכים כשייסגר
       if (S.page === "live") liveSync();
       if (S.page === "people") { if (ch("people")) loadPeople(); if (ch("unknown")) loadUnknown(); }
       if (S.page === "photos") { photosSync(); if (ch("photos") || ch("people")) loadPhotos(); }

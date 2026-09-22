@@ -81,6 +81,8 @@ class LiveWorker(QThread):
         self.last_frame = None
         self._job, self._job_ready = None, threading.Event()
         self.running = False
+        self.last_view = 0.0        # מתי הממשק ביקש תמונה בפעם האחרונה — כשלא צופים, הזיהוי מאט כדי לא להכביד על ההקלדה במסכים אחרים
+        self.paused = False         # חלון הקלדה פתוח — המצלמה משוחררת זמנית (ראה run)
         self.tracks = []
         self.recent_unknown = deque(maxlen=50)   # (זמן, emb)
         self.last_marked = {}
@@ -138,21 +140,41 @@ class LiveWorker(QThread):
             self.enroll_done.emit(True, en["name"])
 
     # ---------- לולאה ראשית ----------
-    def run(self):
+    def _open(self):
         cap = cv2.VideoCapture(int(self.st["camera"]), cv2.CAP_DSHOW)
         if not cap.isOpened():
             cap = cv2.VideoCapture(int(self.st["camera"]))
         if not cap.isOpened():
-            self.failed.emit("לא הצלחתי לפתוח את המצלמה. בדוק שהיא מחוברת ושאף תוכנה אחרת לא משתמשת בה.")
-            return
+            return None
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        return cap
+
+    def run(self):
+        cap = self._open()
+        if cap is None:
+            self.failed.emit("לא הצלחתי לפתוח את המצלמה. בדוק שהיא מחוברת ושאף תוכנה אחרת לא משתמשת בה.")
+            return
         self.running = True
         threading.Thread(target=self._ai_loop, daemon=True).start()
         threading.Thread(target=self._analyze_loop, daemon=True).start()
         fps, t_prev, fails, n_frame = 0.0, time.time(), 0, 0
         while self.running:
+            if self.paused:
+                # חלון הקלדה פתוח — משחררים את המצלמה לגמרי. נמדד 22/9: עצם הזרמת המצלמה (גם בתהליך אחר, בלי זיהוי)
+                # מקפיאה את הממשק ל-0.3–0.5 שנ' בכל פעם, וההקלדה "נתקעת". ברגע שהחלון נסגר פותחים מחדש (~1 שנ').
+                if cap is not None:
+                    cap.release()
+                    cap = None
+                    self.tracks = []
+                time.sleep(0.1)
+                continue
+            if cap is None:
+                cap = self._open()
+                if cap is None:
+                    self.failed.emit("המצלמה לא נפתחה מחדש אחרי ההשהיה.")
+                    break
             ok, frame = cap.read()
             if not ok:
                 fails += 1
@@ -170,7 +192,8 @@ class LiveWorker(QThread):
             try:
                 # איתור פנים (~45ms) רק בכל תמונה שנייה — התצוגה רצה בקצב המלא של המצלמה, והמסגרות נשארות מהאיתור האחרון (33ms קודם)
                 n_frame += 1
-                if n_frame % 2 == 0:
+                # כשאף אחד לא צופה בזיהוי החי (מסך אחר / חלון פתוח) — איתור כל 6 תמונות במקום כל 2 (נמדד 22/9: ההקלדה נתקעה בגלל העומס על המאיץ)
+                if n_frame % (2 if now - self.last_view < 2 else 6) == 0:
                     self._process(frame, now)
                     self._ai_tick(frame, now)
                     self._enroll_step(frame, now)
@@ -181,7 +204,8 @@ class LiveWorker(QThread):
             if dt > 0:
                 fps = 0.9 * fps + 0.1 / dt if fps else 1 / dt
             self.frame_ready.emit(frame, self._labels(), fps)
-        cap.release()
+        if cap is not None:
+            cap.release()
         self.tracks = []
 
     def stop(self):
