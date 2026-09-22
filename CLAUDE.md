@@ -55,19 +55,20 @@
 - Python **3.12** (`...\Python312\python.exe`). תלויות: `PyQt6 openvino onnxruntime opencv-python-headless numpy openpyxl pillow`.
 - בדיקות: `tests\test_pipeline.py [תיקייה] [כמות]` (מקצה לקצה, DB זמני) · `main.py --camera --shot <תיקייה>` (מצלם כל לשונית ל-PNG ויוצא).
 - `tests\test_upgrade.py [תיקייה] [כמות]` — בודק את שדרוג 17/9: תמונת-ראי, תאורה חלשה, כלל המרווח, סיכומי נוכחות.
+- `tests\test_video_check.py [תיקייה] [כמות] [--no-ai] [--yt קישור]` — בדיקת סרטון: סרטון סינתטי מתמונות → `scan_video` (+Gemini על פריימים); `--yt` = Gemini על קישור יוטיוב.
 - `tests\make_shortcut.py` — יוצר מחדש סמל + desktop.ini + קיצורים.
 
 ## מבנה
 - `core/engine.py` — המודלים (מחלקת `Net`: OpenVINO על **Intel GPU**, גיבוי ONNX Runtime CPU). `FaceEngine.detect/embed/gender_age/emotion/liveness`.
 - `core/db.py` — SQLite (`data/faces.db`), הגדרות (`data/settings.json`), גלריה בזיכרון, `match()`, קיבוץ Chinese-Whispers.
 - `core/live.py` — `LiveWorker`: מצלמה, מעקב IoU, הצבעת זהות על 6 מדידות, נוכחות, התרעת לא-מוכר, רישום מהמצלמה.
-- `core/jobs.py` — סריקת תיקיות תמונות (ניתנת להמשך) וסריקת וידאו.
-- `core/ai.py` — `GeminiClient` (REST דרך urllib, בלי SDK): רוטציה על `data/gemini_keys.txt` (24 מפתחות, הועתקו מ-`ארכיון\צאט קידושין ישן`), שרשרת מודלי flash חינמיים, חסימת מפתח זמנית ב-429. ניסוחי הבקשות (`SYSTEM`, `scene_prompt`, `UNKNOWN_PROMPT`) שם.
+- `core/jobs.py` — סריקת תיקיות תמונות (ניתנת להמשך); `scan_video` (זיהוי פנים + קטעי נשים/ילדות), `YouTubeWorker`, `download_youtube` (yt-dlp), `ai_video_check` (Gemini צופה מקישור).
+- `core/ai.py` — `GeminiClient` (REST דרך urllib, בלי SDK): רוטציה על `data/gemini_keys.txt` (24 מפתחות, הועתקו מ-`ארכיון\צאט קידושין ישן`), שרשרת מודלי flash חינמיים, חסימת מפתח זמנית ב-429. ניסוחי הבקשות (`SYSTEM`, `scene_prompt`, `UNKNOWN_PROMPT`, `video_check_prompt`, `frames_check_prompt`) שם. `ask(video_url=…)` = צפייה בסרטון יוטיוב מהקישור (`VIDEO_MODELS`, בלי flash-lite שמתעלם ממדיה). `youtube_url`, `parse_json`.
 - `core/reports.py` — דוחות נוכחות (4 תצוגות), הקשר לעוזר, כתיבת אקסל — משותף לשני הממשקים.
 - `core/updater.py` — עדכון אוטומטי (repo `JHGJHJCD/face-recognition`, asset `FaceID.exe`) + הורדת `models.zip` מ-Release `models-v1` בהפעלה ראשונה.
 - `webui/backend.py` — **הממשק הנוכחי.** `Backend(QObject)` + שרת HTTP מקומי (127.0.0.1, פורט אקראי, אסימון בכתובת). `/frame` = JPEG + תוויות ב-`X-Meta`;
   `/api/*` JSON; `/img/*` תמונות ממוזערות. `in_main()` מריץ בחוט Qt (חלונות קבצים, יצירת workers). `version.py` = מספר גרסה.
-- `webui/static/` — `index.html`/`app.css`/`app.js` (ללא ספריות): 8 מסכים — זיהוי חי (canvas), אנשים, מיון תמונות, סריקת וידאו, יומן נוכחות
+- `webui/static/` — `index.html`/`app.css`/`app.js` (ללא ספריות): 8 מסכים — זיהוי חי (canvas), אנשים, מיון תמונות, בדיקת סרטון (קובץ/קישור יוטיוב: אנשים + נשים/ילדות), יומן נוכחות
   (סיכום יומי/מפורט-עם-עריכה/תקופה/נעדרים), עוזר AI, **נתונים ועדכונים** (סטטיסטיקה, גיבוי ZIP/שחזור, ניקוי, אזור מסוכן, עדכון תוכנה), הגדרות. מצב בהיר/כהה.
 - `main.py` — חלון `QWebEngineView` + `--shot`/`--camera`/`--classic`/`--debug`. `ui/` + `main_classic.py` = הממשק הישן (לא נארז ב-EXE).
 
@@ -106,6 +107,18 @@
   `name` = "פרטי משפחה". גיל מתאריך לידה גובר על הערכת FairFace בתווית החיה; 🎂 ביום ההולדת.
 - ⚠️ `QDateEdit` ב-RTL הופך את סדר יום/חודש/שנה — חובה `setLayoutDirection(LTR)` **לפני** `setDisplayFormat`.
 - **ממשק "בעיצוב דפדפן" (יהודה ביקש 17/9, נבנה 18/9):** `core/` נשאר, `ui/` הוחלף ב-`webui/` — ראה "מבנה".
+
+## בדיקת סרטון — נשים וילדות (22/9/2026, לרעיון "בודק סרטונים לציבור החרדי")
+- **מה זה:** מסך "בדיקת סרטון" מקבל קובץ מקומי **או קישור יוטיוב**, ומחזיר: מי מופיע (זיהוי פנים; לא-מוכרים ניתנים לרישום למאגר)
+  + טבלת "נשים וילדות": קטע (התחלה–סוף), מי (אישה/נערה/ילדה; **"ילדה קטנה"** = מתחת ל-`girl_age`, ברירת מחדל 7), גיל משוער, מקור, הערת Gemini. ייצוא לאקסל של שתי הטבלאות.
+- **שני מקורות לקטעים:** (1) `פנים` — FairFace מקומי מסווג כל פנים למין+גיל; הפנים הנשיות מאוחדות לקטעים (`_female_segments`), ולכל קטע Gemini מאמת 1–2 פריימים מלאים
+  (`frames_check_prompt`, 6 תמונות לבקשה; הגיל של Gemini גובר על FairFace; "לא זיהה דמות נשית" = השורה מוצגת מעומעמת, לא נמחקת). (2) `Gemini` — לקישור יוטיוב בלבד:
+  `ask(video_url=…)` — גוגל מושך את הסרטון בצד שלו, רואה גם גוף בלי פנים/רקע/אנימציה, מחזיר JSON של קטעים + סיכום. הכול נכבה עם `ai_enabled` (אז נשאר FairFace בלבד).
+- ⚠️ **יוטיוב חסום בנטפרי במחשב הזה (HTTP 418 גם ב-yt-dlp)** — ההורדה (`download_youtube`, ל-`data/videos`, עד 720p קובץ יחיד בלי ffmpeg, נשמרים 3 אחרונים) נכשלת,
+  ולכן מקישור מתקבלת רק בדיקת Gemini; זיהוי אנשים דורש את קובץ הסרטון (הודעה במסך). אצל משתמש בלי חסימה שני המסלולים רצים במקביל (`YouTubeWorker`).
+- **FairFace על ילדים:** המין לא אמין (ילד קטן יוצא לפעמים "נקבה") — לכן אימות Gemini חובה לפני שמסתמכים. ההערכה המקומית = "ילדה" מתחת ל-13, "נערה" 13–18.
+- **אימות ויזואלי:** `main.py --shot-video <תיקייה> <קישור|קובץ>` — מריץ בדיקה מלאה ומצלם את המסך בסיום (`web_video_check.png`); `dev/probe_video.py` = אותו דבר דרך ה-API בלי חלון.
+- **Gemini על קישור:** `timeout=600`, `max_tokens=8000`. חותמות-זמן של Gemini הן הערכה (±כמה שניות). 503 "high demand" על מודל וידאו = מנסים מפתח אחר פעמיים לפני שמדלגים על המודל.
 
 ## בנייה ושחרור (מ-18/9/2026)
 - **מבנה ההפצה מ-v1.3 (19/9/2026) — קובץ הפעלה קטן + תוכנה מותקנת.** נמדד: ה-EXE היחיד (249MB) נפרס מחדש בכל הפעלה = **78 שנ'** עד שפייתון בכלל מתחיל.

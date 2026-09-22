@@ -36,7 +36,7 @@ const PAGES = [
   ["live", "זיהוי חי", "מי נמצא עכשיו מול המצלמה", "זיהוי"],
   ["people", "אנשים", "האנשים שהתוכנה מכירה, והלא-מוכרים שנקלטו"],
   ["photos", "מיון תמונות", "סריקת תיקיות תמונות ומציאת כל התמונות של כל אדם"],
-  ["video", "סריקת וידאו", "מי מופיע בסרטון, ובאילו דקות"],
+  ["video", "בדיקת סרטון", "מי מופיע, ואיפה יש נשים או ילדות — מקובץ או מקישור יוטיוב"],
   ["attendance", "יומן נוכחות", "הגעות, עזיבות, איחורים ונעדרים", "מעקב"],
   ["assistant", "עוזר AI", "שאל בעברית חופשית על כל מה שהתוכנה רואה ורושמת"],
   ["data", "נתונים ועדכונים", "גיבוי, שחזור, ניקוי, ייצוא ועדכון התוכנה", "מערכת"],
@@ -352,26 +352,45 @@ RENDER.video = async () => {
   $("#v-scan").onclick = () => S.poll?.video.running ? act("video/stop") : act("video/scan");
   $("#v-export").onclick = () => act("video/export");
   $("#v-name").onclick = async () => { if (S.videoSel == null) return toast("בחר בטבלה שורה של אדם לא מוכר"); const p = await askPerson("מי זה?"); if (p) act("video/name", { idx: S.videoSel, ...p }, "נרשם"); };
-  $("#page").innerHTML = `<div class="split" style="grid-template-columns:1fr 420px">
-    <div class="card"><div id="v-progress" hidden style="margin-bottom:12px"><div class="bar"><i id="v-bar"></i></div></div><p class="muted" id="v-status" style="margin-bottom:10px"></p>
-      <div class="table-wrap"><table><thead><tr><th></th><th>שם</th><th>זמן מסך</th><th>מופיע בדקות</th></tr></thead><tbody id="v-body"></tbody></table></div></div>
+  $("#page").innerHTML = `<div class="split" style="grid-template-columns:1fr 400px">
+    <div class="card" style="gap:10px">
+      <div class="row" id="v-urlrow"><input type="text" id="v-url" placeholder="הדבק קישור יוטיוב (youtube.com / youtu.be)" style="flex:1;min-width:200px" dir="ltr">
+        <button class="btn primary" id="v-go">${icon("video")}בדוק קישור</button></div>
+      <div id="v-progress" hidden><div class="bar"><i id="v-bar"></i></div><small class="muted" id="v-phase"></small></div>
+      <p class="muted" id="v-status"></p><div id="v-notes"></div>
+      <h3 style="margin:0">מי מופיע בסרטון</h3>
+      <div class="table-wrap" style="flex:0 1 auto;max-height:30%"><table><thead><tr><th></th><th>שם</th><th>זמן מסך</th><th>מופיע בדקות</th></tr></thead><tbody id="v-body"></tbody></table></div>
+      <h3 style="margin:0">נשים וילדות בסרטון</h3><small class="muted" id="v-sum"></small>
+      <div class="table-wrap" style="flex:1"><table><thead><tr><th></th><th>מי</th><th>גיל משוער</th><th>קטע</th><th>מקור</th><th>הערה</th></tr></thead><tbody id="v-fem"></tbody></table></div></div>
     <div class="card"><h3>תצוגה מקדימה</h3><div class="stage" style="flex:1"><img id="v-prev" style="max-width:100%;max-height:100%" hidden></div></div></div>`;
+  const go = () => { const u = $("#v-url").value.trim(); if (!u) return toast("הדבק קישור יוטיוב"); act("video/url", { url: u }, "מתחיל…"); };
+  $("#v-go").onclick = go; $("#v-url").onkeydown = e => { if (e.key === "Enter") go(); };
   videoSync(); await loadVideo();
 };
 function videoSync() {
   if (S.page !== "video" || !S.poll) return;
   const v = S.poll.video;
-  $("#v-scan").innerHTML = v.running ? icon("stop") + "עצור סריקה" : icon("video") + "בחר סרטון וסרוק";
-  $("#v-progress").hidden = !v.running; $("#v-bar").style.width = v.pct + "%";
-  $("#v-status").textContent = v.running ? `סורק: ${v.file} · ${v.pct}%` : (v.file ? `${v.file} · ${v.status}` : "בחר קובץ וידאו כדי לגלות מי מופיע בו ובאילו דקות.");
+  $("#v-scan").innerHTML = v.running ? icon("stop") + "עצור" : icon("video") + "בחר קובץ וסרוק";
+  $("#v-go").disabled = v.running;
+  $("#v-progress").hidden = !v.running; $("#v-bar").style.width = v.pct + "%"; $("#v-phase").textContent = v.phase || "";
+  $("#v-status").textContent = v.running ? `${v.file} · ${v.pct}%` : (v.file ? `${v.file} · ${v.status}` : "בחר קובץ וידאו או הדבק קישור יוטיוב: התוכנה מוצאת מי מופיע, ובאילו קטעים יש נשים או ילדות (הגיל לפי Gemini).");
+  $("#v-notes").innerHTML = (v.notes || []).map(n => `<p class="muted" style="color:var(--warn)">${esc(n)}</p>`).join("");
   if (v.preview && v.preview !== S.vPrev) { S.vPrev = v.preview; const im = $("#v-prev"); im.hidden = false; im.src = "img/videopreview?n=" + v.preview; }
 }
 async function loadVideo() {
   const r = await api("video").catch(() => null); if (!r || S.page !== "video") return;
+  if (r.url && !$("#v-url").value) $("#v-url").value = r.url;
   $("#v-body").innerHTML = r.people.map(p => `<tr data-idx="${p.idx}" class="${p.idx === S.videoSel ? "on" : ""}"><td><img src="img/vid/${p.idx}?v=${S.rev.video}"></td>
-    <td><b>${esc(p.name)}</b> ${p.known ? "" : '<span class="tag">לא מוכר</span>'}</td><td>${esc(p.total)}</td><td class="muted">${esc(p.ranges.join("  ,  "))}</td></tr>`).join("")
-    || `<tr><td colspan="4">${empty("video", "אין תוצאות עדיין", "בחר סרטון כדי לגלות מי מופיע בו.")}</td></tr>`;
+    <td><b>${esc(p.name)}</b> ${p.known ? "" : '<span class="tag">לא מוכר</span>'}</td><td>${esc(p.total)}</td><td class="muted" dir="ltr" style="text-align:right">${esc(p.ranges.join("  ,  "))}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="muted">${r.females.length ? "לא זוהו פנים מוכרות (זיהוי אנשים דורש את קובץ הסרטון)" : "אין תוצאות עדיין"}</td></tr>`;
   $$("#v-body tr[data-idx]").forEach(tr => tr.onclick = () => { S.videoSel = +tr.dataset.idx; loadVideo(); });
+  $("#v-sum").textContent = r.summary || "";
+  $("#v-fem").innerHTML = r.females.map(f => {
+    const who = f.small ? `<span class="tag">ילדה קטנה</span>` : `<span class="tag ${f.kind === "אישה" ? "ok" : ""}">${esc(f.kind)}</span>`;
+    const dim = f.ai_female === false ? ' style="opacity:.5"' : "";
+    return `<tr${dim}><td>${f.thumb ? `<img src="img/vidf/${f.idx}?v=${S.rev.video}">` : ""}</td><td>${who}</td><td>${f.age != null ? "~" + f.age : ""}</td>
+      <td dir="ltr" style="text-align:right">${esc(f.start)}–${esc(f.end)}</td><td class="muted">${esc(f.source)}</td><td class="muted">${esc(f.ai)}</td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="muted">${r.people.length ? "לא נמצאו נשים או ילדות" : ""}</td></tr>`;
 }
 
 // ====================================================================== נוכחות
@@ -460,7 +479,8 @@ RENDER.settings = () => {
       ${sw("mirror", "תצוגת מראה", "כמו בסלפי")}
       ${sw("alert_unknown", "שמור והתרע על אדם לא מוכר")}
       ${sw("alert_sound", "צליל בהתרעה")}
-      ${num("video_step", "סריקת וידאו: דגימה כל כמה שניות", "", 0.2, 10, 0.1)}</div>
+      ${num("video_step", "סריקת וידאו: דגימה כל כמה שניות", "", 0.2, 10, 0.1)}
+      ${num("girl_age", "בדיקת סרטון: ילדה נחשבת קטנה עד גיל", "לפי הערכת Gemini", 2, 18)}</div>
     <div class="card"><h3>נוכחות</h3>
       ${sw("attendance", "רשום יומן נוכחות")}
       ${num("attendance_gap_min", "דקות היעדרות שפותחות כניסה חדשה", "", 1, 240)}

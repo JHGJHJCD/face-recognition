@@ -109,6 +109,30 @@ def main():
             QTimer.singleShot(2500, shoot)
 
         wait_ready()
+    elif "--shot-video" in sys.argv:
+        # בדיקה: --shot-video <תיקייה> <קישור-יוטיוב|קובץ> — מריץ בדיקת סרטון, מצלם את המסך כשהיא נגמרת ויוצא
+        out, target = sys.argv[sys.argv.index("--shot-video") + 1:][:2]
+        js = win.view.page().runJavaScript
+
+        def done():
+            if backend.video["running"]:
+                QTimer.singleShot(1000, done)
+                return
+            js("location.hash='video'; setTimeout(loadVideo, 800)")
+            QTimer.singleShot(4000, lambda: (win.grab().save(os.path.join(out, "web_video_check.png")), win.close()))
+
+        def start():
+            if backend.engine is None:
+                QTimer.singleShot(500, start)
+                return
+            js("location.hash='video'")
+            if os.path.exists(target):
+                backend._video_start(target)
+            else:
+                backend.video_scan_url(target)
+            QTimer.singleShot(3000, done)
+
+        start()
     elif "--camera" in sys.argv:
         def cam():
             if backend.engine is None:

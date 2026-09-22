@@ -6,6 +6,7 @@
 import base64
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -19,6 +20,8 @@ KEYS_PATH = os.path.join(DATA_DIR, "gemini_keys.txt")
 # חינמיים בלבד (pro = מכסה 0). 18/9/2026: "flash-latest" היה מושבת שעות (503/פסקי זמן) בזמן ש-lite ענה ב-2 שנ' ו-3.5 ב-10 שנ'
 # ⇒ המהיר ראשון, הכינוי "latest" אחרון, ומודל שנפל מדולג ל-5 דקות. gemini-2.0/2.5-flash הוסרו (404 למפתחות חדשים).
 MODELS = ["gemini-flash-lite-latest", "gemini-3.5-flash", "gemini-flash-latest"]
+# צפייה בסרטון יוטיוב מקישור (file_data) — רק מודלים שרואים וידאו; flash-lite מתעלם מהמדיה בשקט
+VIDEO_MODELS = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-flash-latest"]
 MODEL_DOWN_SEC = 300
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
 
@@ -65,11 +68,14 @@ class GeminiClient:
     def available(self):
         return bool(self.keys)
 
-    def ask(self, prompt, images=(), system=None, temperature=0.4, max_tokens=1024, timeout=25):
-        """images: רשימת תמונות BGR (numpy) או bytes של JPEG. מחזיר טקסט."""
+    def ask(self, prompt, images=(), system=None, temperature=0.4, max_tokens=1024, timeout=25, video_url=None):
+        """images: רשימת תמונות BGR (numpy) או bytes של JPEG. video_url: קישור יוטיוב — גוגל מושך את הסרטון בצד שלו
+        (נטפרי לא מפריע), לוקח דקות לסרטון ארוך. מחזיר טקסט."""
         if not self.keys:
             raise AIError("לא הוגדר מפתח Gemini (לשונית הגדרות).")
         parts = []
+        if video_url:
+            parts.append({"file_data": {"file_uri": video_url}})
         for im in images:
             if not isinstance(im, (bytes, bytearray)):
                 if max(im.shape[:2]) > 960:
@@ -84,8 +90,10 @@ class GeminiClient:
         if system:
             body["systemInstruction"] = {"parts": [{"text": system}]}
         last = "אין תשובה"
-        models = [m for m in MODELS if self.model_down.get(m, 0) <= time.time()] or MODELS
+        pool = VIDEO_MODELS if video_url else MODELS
+        models = [m for m in pool if self.model_down.get(m, 0) <= time.time()] or pool
         for model in models:
+            busy = 0
             if "lite" in model:
                 body["generationConfig"].pop("thinkingConfig", None)
             else:
@@ -109,6 +117,10 @@ class GeminiClient:
                         continue
                     if e.code in (429, 403, 401):
                         self.blocked[(key, model)] = time.time() + (90 if e.code == 429 else 3600)
+                        continue
+                    if e.code in (500, 503) and video_url and busy < 4:
+                        busy += 1       # וידאו: "high demand" לפעמים חולף תוך שניות — מנסים מפתח אחר לפני שמוותרים על המודל
+                        time.sleep(3)
                         continue
                     if e.code in (404, 400, 500, 503):
                         self.model_down[model] = time.time() + MODEL_DOWN_SEC
@@ -152,3 +164,49 @@ def scene_prompt(people):
 
 UNKNOWN_PROMPT = ("זו תמונה של אדם שהתוכנה לא מכירה. תאר אותו במשפט אחד או שניים כדי שיהיה קל להיזכר מי זה: "
                   "גיל משוער, זקן/משקפיים/כיסוי ראש, לבוש בולט, הבעה. בלי לנחש שם או זהות.")
+
+
+# ---------- בדיקת סרטון: נשים וילדות (לרעיון "בודק סרטונים לציבור החרדי") ----------
+_YT_RE = re.compile(r"(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|embed/|live/|v/))([A-Za-z0-9_-]{11})")
+
+
+def youtube_url(text):
+    """מזהה קישור/מזהה יוטיוב בטקסט ומחזיר כתובת קנונית, או None."""
+    text = (text or "").strip()
+    m = _YT_RE.search(text)
+    if not m and re.fullmatch(r"[A-Za-z0-9_-]{11}", text):
+        return "https://www.youtube.com/watch?v=" + text
+    return "https://www.youtube.com/watch?v=" + m.group(1) if m else None
+
+
+def parse_json(text):
+    """Gemini לפעמים עוטף ב-```json … ``` או מוסיף משפט לפני — מחלצים את ה-JSON הראשון."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[4:] if text.lower().startswith("json") else text
+    for opener, closer in (("{", "}"), ("[", "]")):
+        a, b = text.find(opener), text.rfind(closer)
+        if a != -1 and b > a:
+            try:
+                return json.loads(text[a:b + 1])
+            except ValueError:
+                continue
+    raise AIError("תשובת Gemini לא בפורמט הצפוי: " + text[:120])
+
+
+def video_check_prompt(girl_age):
+    return ("צפה בכל הסרטון מתחילתו ועד סופו ומצא כל קטע שבו מופיעה אישה, נערה או ילדה (כולל ברקע, מהצד, מרחוק, בציור/אנימציה "
+            "ובתמונות שמוצגות על המסך). לכל קטע רצוף רשום את זמן ההתחלה והסיום המדויקים ככל האפשר (mm:ss). אל תפספס קטעים קצרים. "
+            f"לכל דמות נשית הערך גיל במספר. ילדה נחשבת 'קטנה' עד גיל {girl_age} (לא כולל {girl_age}). "
+            "החזר JSON בלבד, בלי הסבר, במבנה: "
+            '{"segments":[{"start":"mm:ss","end":"mm:ss","who":"אישה|נערה|ילדה","age":מספר,"small":true/false,"note":"תיאור קצר בעברית"}],'
+            '"summary":"משפט אחד בעברית: כמה קטעים, ומה סוג הדמויות"}. '
+            'אם אין אף דמות נשית: {"segments":[],"summary":"לא נמצאו נשים או ילדות בסרטון"}.')
+
+
+def frames_check_prompt(n, girl_age):
+    return (f"מצורפות {n} תמונות (פריימים מסרטון), ממוספרות לפי הסדר 0..{n - 1}. עבור כל תמונה קבע האם מופיעה בה אישה, נערה או ילדה, "
+            f"והערך את גילה במספר. ילדה 'קטנה' = מתחת לגיל {girl_age}. אם בתמונה יש כמה דמויות נשיות — התייחס לצעירה ביותר. "
+            "החזר JSON בלבד: "
+            '[{"i":מספר התמונה,"female":true/false,"who":"אישה|נערה|ילדה|","age":מספר או null,"small":true/false,"note":"מילה-שתיים"}]')

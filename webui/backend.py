@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import QApplication, QFileDialog
 
 from core import ai, reports, updater
 from core.db import DEFAULTS, Database, Settings, cluster_embeddings
-from core.jobs import PhotoScanWorker, VideoScanWorker, enroll_from_image
+from core.jobs import PhotoScanWorker, VideoScanWorker, YouTubeWorker, enroll_from_image
 from core.live import ENROLL_SAMPLES, LiveWorker
 from core.utils import mark, BASE_DIR, DATA_DIR, IMAGE_EXT, MODELS_DIR, UNKNOWN_DIR, VIDEO_EXT, crop_square, fmt_time, imread, jpg_bytes
 from version import APP_VERSION as _REAL_VERSION
@@ -80,7 +80,7 @@ class Backend(QObject):
         self.live = self.photo_worker = self.video_worker = None
         self.enroll = {"active": False, "n": 0, "total": ENROLL_SAMPLES, "msg": "", "done": None}
         self.photo = {"running": False, "i": 0, "n": 0, "file": "", "result": None}
-        self.video = {"running": False, "pct": 0, "file": "", "status": "", "preview": 0}
+        self.video = {"running": False, "pct": 0, "file": "", "status": "", "preview": 0, "phase": "", "notes": []}
         self.video_result, self.video_preview = None, None
         self.clusters = []
         self.ai_note = {"ts": "", "text": "", "error": ""}
@@ -444,18 +444,37 @@ class Backend(QObject):
         self.in_main(lambda: self._video_start(path))
         return {"started": True}
 
-    def _video_start(self, path):
-        w = VideoScanWorker(self.engine, self.db, self.settings, path)
+    def _gemini(self):
+        """לקוח Gemini לבדיקת נשים/ילדות — רק כשה-AI מופעל ויש מפתחות."""
+        return self.ai if (self.settings["ai_enabled"] and self.ai.available) else None
+
+    def video_scan_url(self, text):
+        """קישור יוטיוב: Gemini צופה מהקישור (בצד של גוגל) + ניסיון הורדה לזיהוי פנים מקומי."""
+        self.need_engine()
+        if self.video_worker:
+            return {"running": True}
+        url = ai.youtube_url(text)
+        if not url:
+            raise ApiError("זה לא נראה כמו קישור יוטיוב")
+        self.in_main(lambda: self._video_start(url, youtube=True))
+        return {"started": True}
+
+    def _video_start(self, path, youtube=False):
+        cls = YouTubeWorker if youtube else VideoScanWorker
+        w = cls(self.engine, self.db, self.settings, path, self._gemini())
         w.progress.connect(self._video_progress)
         w.finished_scan.connect(self._video_done)
         self.video_result = None
-        self.video.update(running=True, pct=0, file=os.path.basename(path), status="")
+        self.video.update(running=True, pct=0, file=path if youtube else os.path.basename(path), status="", notes=[],
+                          phase="מתחבר ליוטיוב…" if youtube else "סורק…")
         self.video_worker = w
         w.start()
         self.bump("video")
 
-    def _video_progress(self, pct, frame):
+    def _video_progress(self, pct, frame, msg=""):
         self.video["pct"] = pct
+        if msg:
+            self.video["phase"] = msg
         if frame is not None:
             if max(frame.shape[:2]) > 960:
                 s = 960 / max(frame.shape[:2])
@@ -470,7 +489,17 @@ class Backend(QObject):
             self.video["status"] = res["error"]
         else:
             self.video_result = res
-            self.video["status"] = f"אורך {fmt_time(res['duration'])} · נמצאו {len(res['people'])} אנשים"
+            fem = res.get("females", [])
+            small = sum(1 for s in fem if s.get("small"))
+            st = f"אורך {fmt_time(res['duration'])} · נמצאו {len(res['people'])} אנשים" if res.get("duration") else ""
+            st += f" · {len(fem)} קטעים עם נשים/ילדות" + (f" ({small} עם ילדה קטנה)" if small else "") if fem or res.get("duration") else ""
+            if res.get("duration") and not fem:
+                st += " · לא נמצאו נשים או ילדות"
+            self.video["status"] = st.strip(" ·")
+            self.video["notes"] = res.get("notes", [])
+            if res.get("file"):
+                self.video["file"] = os.path.basename(res["file"])
+        self.video["phase"] = ""
         self.bump("video")
 
     def video_people(self):
@@ -478,6 +507,16 @@ class Backend(QObject):
             return []
         return [{"idx": i, "name": p["name"], "known": p["known"], "total": fmt_time(p["total"]),
                  "ranges": [f"{fmt_time(a)}–{fmt_time(b)}" for a, b in p["ranges"]]} for i, p in enumerate(self.video_result["people"])]
+
+    def video_females(self):
+        if not self.video_result:
+            return []
+        out = []
+        for i, s in enumerate(self.video_result.get("females", [])):
+            out.append({"idx": i, "kind": s["kind"], "age": s["age"], "small": bool(s["small"]), "source": s["source"],
+                        "start": fmt_time(s["start"]), "end": fmt_time(s["end"]), "n": s["n"], "ai": s["ai"], "ai_female": s["ai_female"],
+                        "thumb": s["thumb"] is not None})
+        return out
 
     def video_name(self, idx, person):
         db = self.need_db()
@@ -676,6 +715,10 @@ class Backend(QObject):
             return people[i]["thumb"] if 0 <= i < len(people) else None
         if kind == "videopreview":
             return self.video_preview
+        if kind == "vidf":
+            i = int(parts[1])
+            fem = self.video_result.get("females", []) if self.video_result else []
+            return fem[i]["thumb"] if 0 <= i < len(fem) else None
         if kind == "personphoto":
             rows = db.photos_of(int(parts[1]))
             i = int(parts[2])
@@ -801,7 +844,8 @@ def make_handler(be, token):
             if name == "photos/list":
                 return be.photos_list(q["kind"], int(q["id"]))
             if name == "video":
-                return {"state": be.video, "people": be.video_people()}
+                return {"state": be.video, "people": be.video_people(), "females": be.video_females(),
+                        "summary": (be.video_result or {}).get("ai_summary", ""), "url": (be.video_result or {}).get("url", "")}
             if name == "attendance":
                 t0, t1 = reports.day_range(q["from"], q["to"])
                 headers, rows = reports.attendance_view(be.need_db(), be.settings, int(q.get("view", 0)), t0, t1)
@@ -867,6 +911,8 @@ def make_handler(be, token):
                 return be.open_photo(str(b["path"]))
             if name == "video/scan":
                 return be.video_scan()
+            if name == "video/url":
+                return be.video_scan_url(str(b.get("url", "")))
             if name == "video/stop":
                 if be.video_worker:
                     be.video_worker.stop_flag = True
@@ -874,8 +920,10 @@ def make_handler(be, token):
             if name == "video/name":
                 return be.video_name(int(b["idx"]), be.person_from(b))
             if name == "video/export":
-                rows = [(p["name"], p["total"], ", ".join(p["ranges"])) for p in be.video_people()]
-                return be.export(["שם", "זמן מסך", "טווחי זמן"], rows, "מי בסרטון.xlsx")
+                rows = [("אדם", p["name"], p["total"], ", ".join(p["ranges"]), "") for p in be.video_people()]
+                rows += [(("ילדה קטנה" if f["small"] else f["kind"]), f"גיל ~{f['age']}" if f["age"] is not None else "", "",
+                          f"{f['start']}–{f['end']}", f"{f['source']}: {f['ai']}".strip(": ")) for f in be.video_females()]
+                return be.export(["סוג", "שם / גיל", "זמן מסך", "טווחי זמן", "הערה"], rows, "בדיקת סרטון.xlsx")
             if name == "attendance/export":
                 t0, t1 = reports.day_range(b["from"], b["to"])
                 view = int(b.get("view", 0))
