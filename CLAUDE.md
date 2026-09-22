@@ -50,6 +50,12 @@
 - **`QDateEdit` ב-RTL** הופך יום/חודש/שנה — `setLayoutDirection(LTR)` **לפני** `setDisplayFormat` (רלוונטי רק ל-`--classic`).
 - **גלילה בממשק ה-HTML:** `#app`/`main` חייבים `height:100vh; overflow:hidden` — בלי זה `#page` גדל מעבר למסך ושום דבר לא נגלל (הבאג של 18/9). אלמנטים עם `.btn` + `hidden` צריכים `[hidden]{display:none!important}`.
 
+## בית חכם — גשר ל-Home Assistant (v2.0, 23/9/2026)
+- `webui/backend.py::ha_notify(name, known)` נקרא מ-`_on_seen` (אדם מוכר) ומ-`_on_unknown` (לא מוכר) ושולח POST JSON `{"name","known","time"}` ל-`settings["ha_url"]`
+  (ברירת מחדל `http://localhost:8123/api/webhook/mh-faceid`) בחוט נפרד, timeout 3 שנ'. כשל = אירוע "info" אחד ביומן (לא חוזר על עצמו, `ha_ok`).
+- הגדרות: `ha_enabled` (ברירת מחדל דולק), `ha_url` — כרטיס "בית חכם" במסך ההגדרות. צד ה-HA: `Desktop\בית חכם\ha-config\packages\my_house_2.yaml` (אוטומציה `mh_faceid_webhook`).
+- מלכודת: **הגשר שולח את השם כפי שרשום ב-`persons`** — רשימות "בני הבית"/"הילדים" ב-HA (`input_text.mh_family/mh_kids`) חייבות להתאים בדיוק לשמות בתוכנה.
+
 ## הרצה
 - קיצור: `זיהוי פנים.lnk` (בתיקייה וב-`Desktop\קיצורים\`) → `pythonw.exe main.py` בלי טרמינל. `main.py --classic` = הממשק הישן (PyQt), גיבוי בלבד.
 - Python **3.12** (`...\Python312\python.exe`). תלויות: `PyQt6 openvino onnxruntime opencv-python-headless numpy openpyxl pillow`.

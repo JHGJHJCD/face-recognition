@@ -18,6 +18,7 @@ import zipfile
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 import cv2
 import numpy as np
@@ -249,12 +250,32 @@ class Backend(QObject):
         cake = "🎂 יום הולדת היום! · " if pid is not None and self.db.birthday_today(pid) else ""
         self.add_event("seen", f"{name}\n{cake}נרשם ביומן", f"img/person/{pid}" if pid else "")
         self.bump("attendance")
+        self.ha_notify(name, True)
 
     def _on_unknown(self, path):
         self.add_event("unknown", "אדם לא מוכר", "img/unknownfile/" + os.path.basename(path))
         if self.settings["alert_sound"]:
             winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS | winsound.SND_ASYNC)
         self.bump("unknown")
+        self.ha_notify("", False)
+
+    ha_ok = None   # None = עוד לא נוסה, True/False = תוצאת הדיווח האחרון ל-Home Assistant
+
+    def ha_notify(self, name, known):
+        """בית חכם: שולח ל-Home Assistant (webhook מקומי) מי זוהה במצלמה. שקט אם HA לא רץ."""
+        if not self.settings.get("ha_enabled") or not self.settings.get("ha_url"):
+            return
+        body = json.dumps({"name": name, "known": bool(known), "time": time.strftime("%H:%M:%S")}, ensure_ascii=False).encode("utf-8")
+
+        def post():
+            try:
+                urlopen(Request(self.settings["ha_url"], data=body, headers={"Content-Type": "application/json"}), timeout=3).read()
+                self.ha_ok = True
+            except Exception as e:
+                if self.ha_ok is not False:
+                    self.add_event("info", f"בית חכם: לא הצלחתי לדווח ל-Home Assistant ({e.__class__.__name__})")
+                self.ha_ok = False
+        threading.Thread(target=post, daemon=True).start()
 
     def _on_ai(self, kind, text):
         if kind == "error":

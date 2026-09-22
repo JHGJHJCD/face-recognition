@@ -491,6 +491,9 @@ RENDER.settings = () => {
       ${sw("attendance", "רשום יומן נוכחות")}
       ${num("attendance_gap_min", "דקות היעדרות שפותחות כניסה חדשה", "", 1, 240)}
       <div class="opt"><div><b>שעת התחלה לחישוב איחורים</b><small>השאר ריק כדי לא לחשב איחורים</small></div><input type="time" data-k="work_start" value="${esc(s.work_start)}"></div></div>
+    <div class="card"><h3>בית חכם (Home Assistant)</h3>
+      ${sw("ha_enabled", "דווח ל-Home Assistant על כל זיהוי", "כל אדם שמזוהה (או לא מוכר) נשלח לבית החכם במחשב הזה, והאוטומציות שם מגיבות. נשאר מקומי.")}
+      <div class="opt"><div><b>כתובת ה-webhook</b><small>ברירת המחדל מתאימה לבית החכם שמותקן במחשב הזה</small></div><input type="text" data-k="ha_url" dir="ltr" style="min-width:280px" value="${esc(s.ha_url || "")}"></div></div>
     <div class="card ai-card"><h3>${icon("assistant")} בינה מלאכותית (Gemini)</h3>
       ${sw("ai_enabled", "הפעל AI", "זה החלק היחיד ששולח תמונות מהמצלמה ונתוני יומן לענן של גוגל. כבוי = הכול מקומי.")}
       ${num("ai_interval", "תיאור אוטומטי של המצלמה כל כמה שניות", "", 10, 600)}

@@ -27,6 +27,8 @@ DEFAULTS = {
     "ai_enabled": True,         # Gemini בענן: תיאור סצנה, תיאור לא-מוכרים, עוזר
     "ai_interval": 30,          # שניות בין תיאורי סצנה אוטומטיים
     "girl_age": 7,              # בדיקת סרטון: ילדה עד גיל זה נחשבת "קטנה"
+    "ha_enabled": True,         # בית חכם: לדווח ל-Home Assistant על כל זיהוי (webhook מקומי)
+    "ha_url": "http://localhost:8123/api/webhook/mh-faceid",   # כתובת ה-webhook ב-HA (packages/my_house.yaml)
 }
 
 
