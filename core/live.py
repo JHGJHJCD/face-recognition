@@ -97,11 +97,13 @@ class LiveWorker(QThread):
 
     def _enroll_step(self, frame, now):
         en = self._enroll
-        if en is None or not self.tracks:
+        if en is None:
             return
-        if now - en["t0"] > 60:
+        if now - en["t0"] > 60:     # לפני בדיקת הפנים — אחרת מי שיצא מהפריים משאיר "רושם…" לנצח (ומשתיק התרעות ו-AI)
             self._enroll = None
             self.enroll_done.emit(False, "לא הצלחתי לקלוט פנים ברורות. נסה שוב בתאורה טובה יותר.")
+            return
+        if not self.tracks:
             return
         tr = max(self.tracks, key=lambda t: t.face.size)
         f = tr.face

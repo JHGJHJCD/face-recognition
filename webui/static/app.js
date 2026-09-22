@@ -70,9 +70,10 @@ function modal(html, onMount) {
     const o = document.createElement("div");
     o.className = "overlay"; o.innerHTML = `<div class="modal">${html}</div>`;
     // בזמן שחלון פתוח המצלמה מושהית — הזרמת המצלמה מקפיאה את ההקלדה (נמדד 22/9)
-    const pause = on => { if (S.camera) api("camera/pause", { on }).catch(() => { }); };
-    pause(true);
-    const close = v => { o.remove(); document.removeEventListener("keydown", key); pause(false); resolve(v); };
+    // ההשהיה והחזרה נשלחות בזו אחר זו (לא במקביל) — אחרת Esc מהיר יכול להשאיר את המצלמה מושהית
+    const pause = on => S.camera ? api("camera/pause", { on }).catch(() => { }) : Promise.resolve();
+    const paused = pause(true);
+    const close = v => { o.remove(); document.removeEventListener("keydown", key); paused.then(() => pause(false)); resolve(v); };
     const key = e => { if (e.key === "Escape") close(null); if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") $("[data-ok]", o)?.click(); };
     document.addEventListener("keydown", key);
     o.addEventListener("mousedown", e => { if (e.target === o) close(null); });
@@ -373,6 +374,8 @@ RENDER.video = async () => {
 function videoSync() {
   if (S.page !== "video" || !S.poll) return;
   const v = S.poll.video;
+  if (v.running && !S.vRunning) S.videoSel = null;   // סריקה חדשה — הבחירה מהסרטון הקודם לא תקפה (אחרת "תן שם" ירשום אדם אחר)
+  S.vRunning = v.running;
   if (!v.running || !v.phase.startsWith("עוצר")) { $("#v-scan").disabled = false; $("#v-scan").innerHTML = v.running ? icon("stop") + "עצור" : icon("video") + "בחר קובץ וסרוק"; }
   $("#v-go").disabled = v.running;
   $("#v-progress").hidden = !v.running; $("#v-bar").style.width = v.pct + "%"; $("#v-phase").textContent = v.phase || "";
@@ -569,14 +572,15 @@ async function pollLoop() {
   while (true) {
     try {
       const p = await api("poll?ev=" + S.lastEv);
-      const prev = S.rev; S.poll = p; S.camera = p.camera; S.rev = p.rev;
+      const prev = S.rev; S.poll = p; S.camera = p.camera;
       if (p.engine && !S.boot.info.engine) { S.boot.info = (await api("boot")).info; setChips(); }
       if (p.events.length) { S.events.push(...p.events); S.events = S.events.slice(-60); S.lastEv = p.events.at(-1).id; drawFeed(); }
       if (p.enroll.done) {
         if (p.enroll.done.ok && $(".stage")) { const st = document.createElement("div"); st.className = "stamp"; st.textContent = "נרשם"; $(".stage").append(st); setTimeout(() => st.remove(), 2600); }
         toast(p.enroll.done.text, p.enroll.done.ok ? "ok" : "bad"); act("enroll/ack"); }
       const ch = k => prev[k] !== undefined && prev[k] !== p.rev[k];
-      if ($(".overlay")) { await sleep(700); continue; }   // חלון פתוח (הקלדת שם) — לא כותבים מחדש את המסך מאחוריו; ממשיכים כשייסגר
+      if ($(".overlay")) { await sleep(700); continue; }   // חלון פתוח (הקלדת שם) — לא כותבים מחדש את המסך מאחוריו; S.rev נשאר ישן כדי שהשינוי ייטען כשייסגר
+      S.rev = p.rev;
       if (S.page === "live") liveSync();
       if (S.page === "people") { if (ch("people")) loadPeople(); if (ch("unknown")) loadUnknown(); }
       if (S.page === "photos") { photosSync(); if (ch("photos") || ch("people")) loadPhotos(); }
