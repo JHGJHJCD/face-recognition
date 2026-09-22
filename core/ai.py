@@ -68,7 +68,7 @@ class GeminiClient:
     def available(self):
         return bool(self.keys)
 
-    def ask(self, prompt, images=(), system=None, temperature=0.4, max_tokens=1024, timeout=25, video_url=None):
+    def ask(self, prompt, images=(), system=None, temperature=0.4, max_tokens=1024, timeout=25, video_url=None, stop=None):
         """images: רשימת תמונות BGR (numpy) או bytes של JPEG. video_url: קישור יוטיוב — גוגל מושך את הסרטון בצד שלו
         (נטפרי לא מפריע), לוקח דקות לסרטון ארוך. מחזיר טקסט."""
         if not self.keys:
@@ -99,6 +99,8 @@ class GeminiClient:
             else:
                 body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
             for _ in range(len(self.keys)):
+                if stop is not None and stop():
+                    raise AIError("הופסק")
                 with self.lock:
                     key = self.keys[self.idx % len(self.keys)]
                     self.idx += 1

@@ -212,6 +212,8 @@ def scan_video(engine, db, st, path, progress, stop, gemini=None):
                 progress(int(idx * 100 / total), frame if (idx // every) % 3 == 0 else None, "")
         idx += 1
     cap.release()
+    if stop():
+        an.gemini = None
     return an.finish(stop, progress, idx / fps)
 
 
@@ -226,7 +228,7 @@ def _female_segments(fem, frames, step, girl_age, gemini, stop, progress):
         top = max(hits, key=lambda x: x[3])
         segs.append({"start": a, "end": b, "n": len(hits), "age": int(round(age)), "kind": _kind(age, girl_age),
                      "small": age < girl_age, "thumb": top[2], "source": "פנים", "ai": "", "ai_female": None})
-    if gemini is None:
+    if gemini is None or stop():
         return segs
     # פריימים לאימות: הטוב ביותר בכל קטע, ועוד אחד לקטע ארוך (> 20 שנ')
     picks = []                # (מספר קטע, JPEG)
@@ -242,7 +244,7 @@ def _female_segments(fem, frames, step, girl_age, gemini, stop, progress):
         progress(100, None, f"Gemini בודק נשים וילדות בפריימים… {j + len(batch)}/{len(picks)}")
         try:
             ans = ai.parse_json(gemini.ask(ai.frames_check_prompt(len(batch), int(girl_age)), [b for _, b in batch],
-                                           temperature=0.1, max_tokens=1500, timeout=60))
+                                           temperature=0.1, max_tokens=1500, timeout=45, stop=stop))
             for row in ans if isinstance(ans, list) else []:
                 k = int(row.get("i", -1))
                 if 0 <= k < len(batch):
@@ -271,9 +273,9 @@ def _female_segments(fem, frames, step, girl_age, gemini, stop, progress):
     return segs
 
 
-def ai_video_check(gemini, url, girl_age):
+def ai_video_check(gemini, url, girl_age, stop=None):
     """Gemini צופה בסרטון יוטיוב שלם מהקישור. מחזיר (קטעים, סיכום). מעלה AIError בכישלון."""
-    text = gemini.ask(ai.video_check_prompt(int(girl_age)), video_url=url, temperature=0.2, max_tokens=8000, timeout=600)
+    text = gemini.ask(ai.video_check_prompt(int(girl_age)), video_url=url, temperature=0.2, max_tokens=8000, timeout=600, stop=stop)
     data = ai.parse_json(text)
     segs = []
     for r in data.get("segments", []) if isinstance(data, dict) else []:
@@ -389,6 +391,8 @@ class YouTubeWorker(QThread):
             self.progress.emit(pct, frame if n % 3 == 0 else None, f"מנתח בתוך יוטיוב… {fmt_time(t)} / {fmt_time(duration)}")
         if n == 0:
             return None, "לא התקבלו פריימים מהנגן"
+        if stop():
+            an.gemini = None              # נעצר — מסכמים מה שיש בלי להמתין ל-Gemini
         res = an.finish(stop, self.progress.emit, duration)
         res["snap"] = an.snap
         return res, ""
@@ -401,7 +405,7 @@ class YouTubeWorker(QThread):
         if self.gemini is not None:
             def ai_pass():
                 try:
-                    box["segs"], box["summary"] = ai_video_check(self.gemini, self.url, girl_age)
+                    box["segs"], box["summary"] = ai_video_check(self.gemini, self.url, girl_age, stop)
                 except Exception as e:
                     box["error"] = str(e)
             th = threading.Thread(target=ai_pass, daemon=True)

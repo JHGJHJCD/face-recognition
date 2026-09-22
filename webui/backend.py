@@ -505,6 +505,7 @@ class Backend(QObject):
     def video_stop(self):
         if self.video_worker:
             self.video_worker.stop_flag = True
+            self.video["phase"] = "עוצר… (מסכם את מה שנבדק עד עכשיו)"
         self.in_main(self._close_player)
 
     def _video_progress(self, pct, frame, msg=""):

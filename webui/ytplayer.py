@@ -100,10 +100,17 @@ class YouTubePlayer(QObject):
         return arr if arr is not None and arr.mean() > 6 else None      # מסך שחור = עוד לא צויר
 
     def _finish(self, item):
-        print("ytplayer:", item[2], flush=True)
         self.done = True
         self.timer.stop()
-        self.frames.put(item)
+        while True:                   # אסור לחסום את החוט הראשי: אם התור מלא מפנים את הישן ביותר
+            try:
+                self.frames.put_nowait(item)
+                break
+            except queue.Full:
+                try:
+                    self.frames.get_nowait()
+                except queue.Empty:
+                    pass
         self.close()
 
     def close(self):

@@ -349,7 +349,7 @@ async function loadPhotos() {
 // ====================================================================== וידאו
 RENDER.video = async () => {
   $("#top-actions").innerHTML = `<button class="btn" id="v-name">תן שם ללא-מוכר</button><button class="btn" id="v-export">${icon("excel")}ייצוא לאקסל</button><button class="btn primary" id="v-scan"></button>`;
-  $("#v-scan").onclick = () => S.poll?.video.running ? act("video/stop") : act("video/scan");
+  $("#v-scan").onclick = e => { if (S.poll?.video.running) { e.currentTarget.disabled = true; e.currentTarget.textContent = "עוצר…"; act("video/stop"); } else act("video/scan"); };
   $("#v-export").onclick = () => act("video/export");
   $("#v-name").onclick = async () => { if (S.videoSel == null) return toast("בחר בטבלה שורה של אדם לא מוכר"); const p = await askPerson("מי זה?"); if (p) act("video/name", { idx: S.videoSel, ...p }, "נרשם"); };
   $("#page").innerHTML = `<div class="split" style="grid-template-columns:1fr 400px">
@@ -370,7 +370,7 @@ RENDER.video = async () => {
 function videoSync() {
   if (S.page !== "video" || !S.poll) return;
   const v = S.poll.video;
-  $("#v-scan").innerHTML = v.running ? icon("stop") + "עצור" : icon("video") + "בחר קובץ וסרוק";
+  if (!v.running || !v.phase.startsWith("עוצר")) { $("#v-scan").disabled = false; $("#v-scan").innerHTML = v.running ? icon("stop") + "עצור" : icon("video") + "בחר קובץ וסרוק"; }
   $("#v-go").disabled = v.running;
   $("#v-progress").hidden = !v.running; $("#v-bar").style.width = v.pct + "%"; $("#v-phase").textContent = v.phase || "";
   $("#v-status").textContent = v.running ? `${v.file} · ${v.pct}%${v.phase ? " · " + v.phase : ""}` : (v.file ? `${v.file} · ${v.status}` : "בחר קובץ וידאו או הדבק קישור יוטיוב: התוכנה מוצאת מי מופיע, ובאילו קטעים יש נשים או ילדות (הגיל לפי Gemini).");

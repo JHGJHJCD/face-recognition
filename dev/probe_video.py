@@ -45,8 +45,12 @@ def work():
         print("post video/url →", post("video/url", {"url": target}))
     last = ""
     t0 = time.time()
+    stop_after = float(os.environ.get("STOP_AFTER", 0))     # בדיקת עצירה: אחרי N שניות שולחים video/stop ומודדים כמה זמן עד שנעצר
     while True:
         v = get("poll")["video"]
+        if stop_after and time.time() - t0 > stop_after:
+            print(f"  [{time.time() - t0:5.0f}s] → video/stop", post("video/stop", {}))
+            stop_after = 0
         line = f"{v['pct']}% {v['phase']}"
         if line != last:
             print(f"  [{time.time() - t0:5.0f}s] {line}")
